@@ -10,7 +10,6 @@ import {
   type ExecApprovalsFile,
 } from "../infra/exec-approvals.js";
 import { formatTimeAgo } from "../infra/format-time/format-relative.ts";
-import { resolveTrustAuditPath } from "../infra/trust-audit.js";
 import { defaultRuntime } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
 import { renderTable } from "../terminal/table.js";
@@ -587,21 +586,23 @@ export function registerExecApprovalsCli(program: Command) {
       try {
         const agentKey = opts.agent?.trim() || "main";
 
-        // Check for active window to get remaining time for display
-        const snapshot = loadSnapshotLocal();
-        const agent = (snapshot.file.agents ?? {})[agentKey];
-        const now = Date.now();
-        const wasActive =
-          agent?.trustWindow?.status === "active" && agent.trustWindow.expiresAt > now;
-        const remainingMin = wasActive
-          ? Math.ceil((agent.trustWindow!.expiresAt - now) / 60_000)
-          : 0;
+        let keepAudit = Boolean(opts.keep);
+        if (!opts.keep && !opts.yes && process.stdin.isTTY) {
+          const readline = await import("node:readline");
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          const answer = await new Promise<string>((resolve) => {
+            rl.question(`\n  Delete audit log? [Y/n] `, resolve);
+          });
+          rl.close();
+          const trimmed = answer.trim().toLowerCase();
+          const shouldDelete = trimmed === "" || trimmed === "y" || trimmed === "yes";
+          keepAudit = !shouldDelete;
+        }
 
-        // Always keep audit here — CLI handles cleanup after interactive prompt
         const result = (await callGatewayFromCli("exec.approvals.untrust", opts, {
           agentId: agentKey,
           revokedBy: "cli",
-          keepAudit: true,
+          keepAudit,
         })) as { ok: boolean; agentId?: string; summary?: string; message?: string };
 
         if (!result?.ok) {
@@ -609,13 +610,7 @@ export function registerExecApprovalsCli(program: Command) {
           return;
         }
 
-        if (wasActive) {
-          defaultRuntime.log(
-            `🔒 Trust window revoked for agent "${agentKey}" (${remainingMin}m remaining).`,
-          );
-        } else {
-          defaultRuntime.log(`🔒 Expired trust window cleared for agent "${agentKey}".`);
-        }
+        defaultRuntime.log(`🔒 Trust window revoked for agent "${agentKey}".`);
         defaultRuntime.log(`   Normal approval policy restored.`);
 
         if (result.summary) {
@@ -623,33 +618,9 @@ export function registerExecApprovalsCli(program: Command) {
           defaultRuntime.log(result.summary);
         }
 
-        // Determine whether to keep or delete the audit log (AFTER showing summary)
-        const auditPath = resolveTrustAuditPath(agentKey);
-        const auditExists = (await import("node:fs")).existsSync(auditPath);
-        let shouldDelete = true;
-        if (auditExists) {
-          if (opts.keep) {
-            shouldDelete = false;
-          } else if (opts.yes) {
-            shouldDelete = true;
-          } else if (process.stdin.isTTY) {
-            const readline = await import("node:readline");
-            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-            const answer = await new Promise<string>((resolve) => {
-              rl.question(`\n  Delete audit log? [Y/n] `, resolve);
-            });
-            rl.close();
-            const trimmed = answer.trim().toLowerCase();
-            shouldDelete = trimmed === "" || trimmed === "y" || trimmed === "yes";
-          }
-        }
-
-        if (shouldDelete && auditExists) {
-          const { cleanupTrustAudit } = await import("../infra/trust-audit.js");
-          cleanupTrustAudit(agentKey);
-        } else if (auditExists) {
+        if (keepAudit) {
           defaultRuntime.log("");
-          defaultRuntime.log(theme.muted(`Audit log preserved at ${auditPath}`));
+          defaultRuntime.log(theme.muted("Audit log preserved."));
         }
       } catch (err) {
         defaultRuntime.error(formatCliError(err));

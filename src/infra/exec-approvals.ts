@@ -4,7 +4,7 @@ import path from "node:path";
 import { DEFAULT_AGENT_ID } from "../routing/session-key.js";
 import { expandHomePrefix } from "./home-dir.js";
 import { requestJsonlSocket } from "./jsonl-socket.js";
-import { summarizeTrustAudit, cleanupTrustAudit } from "./trust-audit.js";
+import { summarizeTrustAudit } from "./trust-audit.js";
 export * from "./exec-approvals-analysis.js";
 export * from "./exec-approvals-allowlist.js";
 
@@ -92,7 +92,6 @@ export type TrustWindow = {
 
 export type ExecApprovalsAgent = ExecApprovalsDefaults & {
   allowlist?: ExecAllowlistEntry[];
-  trustWindow?: TrustWindow;
 };
 
 export type ExecApprovalsFile = {
@@ -398,12 +397,6 @@ export function grantTrustWindow(params: {
     };
   }
 
-  ensureExecApprovals();
-  const snapshot = readExecApprovalsSnapshot();
-  const file = snapshot.file;
-  const agents = file.agents ?? {};
-  const agent = agents[agentId] ?? {};
-
   const expiresAt = now + minutes * 60_000;
   const trustWindow: TrustWindow = {
     status: "active" as const,
@@ -417,10 +410,6 @@ export function grantTrustWindow(params: {
   };
 
   trustWindowCache.set(agentId, trustWindow);
-
-  agents[agentId] = { ...agent, trustWindow };
-  file.agents = agents;
-  saveExecApprovals(file);
 
   return { ok: true, agentId, expiresAt };
 }
@@ -437,12 +426,6 @@ export function revokeTrustWindow(params: {
     return { ok: false, error: `No active trust window for agent "${agentId}"` };
   }
 
-  ensureExecApprovals();
-  const snapshot = readExecApprovalsSnapshot();
-  const file = snapshot.file;
-  const agents = file.agents ?? {};
-  const agent = agents[agentId];
-
   const now = Date.now();
   const endAt = trustWindow.expiresAt > now ? now : (trustWindow.expiresAt ?? now);
   const summary = summarizeTrustAudit({
@@ -450,16 +433,8 @@ export function revokeTrustWindow(params: {
     startedAt: trustWindow.grantedAt,
     endedAt: endAt,
   });
-  if (!params.keepAudit) {
-    cleanupTrustAudit(agentId);
-  }
 
   trustWindowCache.delete(agentId);
-
-  const { trustWindow: _, ...agentWithout } = agent ?? {};
-  agents[agentId] = agentWithout;
-  file.agents = agents;
-  saveExecApprovals(file);
 
   return { ok: true, agentId, summary: summary ?? undefined };
 }

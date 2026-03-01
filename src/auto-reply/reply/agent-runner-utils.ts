@@ -4,7 +4,7 @@ import { getChannelDock } from "../../channels/dock.js";
 import type { ChannelId, ChannelThreadingToolContext } from "../../channels/plugins/types.js";
 import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/registry.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { readExecApprovalsSnapshot } from "../../infra/exec-approvals.js";
+import { getTrustWindow } from "../../infra/exec-approvals.js";
 import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { estimateUsageCost, formatTokenCount, formatUsd } from "../../utils/usage-format.js";
@@ -149,9 +149,8 @@ export const trustStatusLine = (params?: {
   channel?: string;
   now?: () => number;
 }): string | undefined => {
-  const snapshot = readExecApprovalsSnapshot();
   const agentKey = params?.agentId?.trim() || DEFAULT_AGENT_ID;
-  const trustWindow = snapshot.file.agents?.[agentKey]?.trustWindow;
+  const trustWindow = getTrustWindow(agentKey);
   if (!trustWindow || trustWindow.status !== "active") {
     return undefined;
   }

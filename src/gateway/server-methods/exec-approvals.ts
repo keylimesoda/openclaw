@@ -9,6 +9,7 @@ import {
   type ExecApprovalsFile,
   type ExecApprovalsSnapshot,
 } from "../../infra/exec-approvals.js";
+import { cleanupTrustAudit } from "../../infra/trust-audit.js";
 import {
   ErrorCodes,
   errorShape,
@@ -218,6 +219,9 @@ export const execApprovalsHandlers: GatewayRequestHandlers = {
         undefined,
       );
       return;
+    }
+    if (!p.keepAudit) {
+      cleanupTrustAudit(result.agentId);
     }
     respond(true, { ok: true, agentId: result.agentId, summary: result.summary }, undefined);
   },

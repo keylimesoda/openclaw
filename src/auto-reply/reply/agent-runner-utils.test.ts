@@ -3,8 +3,8 @@ import type { FollowupRun } from "./queue.js";
 
 const hoisted = vi.hoisted(() => {
   const resolveRunModelFallbacksOverrideMock = vi.fn();
-  const readExecApprovalsSnapshotMock = vi.fn();
-  return { resolveRunModelFallbacksOverrideMock, readExecApprovalsSnapshotMock };
+  const getTrustWindowMock = vi.fn();
+  return { resolveRunModelFallbacksOverrideMock, getTrustWindowMock };
 });
 
 vi.mock("../../agents/agent-scope.js", () => ({
@@ -13,7 +13,7 @@ vi.mock("../../agents/agent-scope.js", () => ({
 }));
 
 vi.mock("../../infra/exec-approvals.js", () => ({
-  readExecApprovalsSnapshot: (...args: unknown[]) => hoisted.readExecApprovalsSnapshotMock(...args),
+  getTrustWindow: (...args: unknown[]) => hoisted.getTrustWindowMock(...args),
 }));
 
 const {
@@ -181,30 +181,19 @@ describe("agent-runner-utils", () => {
   });
 
   it("returns undefined when no trust window is active", () => {
-    hoisted.readExecApprovalsSnapshotMock.mockReturnValue({
-      file: { version: 1, agents: {} },
-    });
+    hoisted.getTrustWindowMock.mockReturnValue(undefined);
 
     expect(trustStatusLine({ agentId: "main", now: () => 0 })).toBeUndefined();
   });
 
   it("formats trust status line with remaining minutes", () => {
     const now = 1_000_000;
-    hoisted.readExecApprovalsSnapshotMock.mockReturnValue({
-      file: {
-        version: 1,
-        agents: {
-          main: {
-            trustWindow: {
-              status: "active",
-              expiresAt: now + 47 * 60_000,
-              grantedAt: now - 60_000,
-              security: "full",
-              ask: "off",
-            },
-          },
-        },
-      },
+    hoisted.getTrustWindowMock.mockReturnValue({
+      status: "active",
+      expiresAt: now + 47 * 60_000,
+      grantedAt: now - 60_000,
+      security: "full",
+      ask: "off",
     });
 
     expect(trustStatusLine({ agentId: "main", channel: "discord", now: () => now })).toBe(
@@ -214,21 +203,12 @@ describe("agent-runner-utils", () => {
 
   it("uses warning icon within five minutes", () => {
     const now = 2_000_000;
-    hoisted.readExecApprovalsSnapshotMock.mockReturnValue({
-      file: {
-        version: 1,
-        agents: {
-          main: {
-            trustWindow: {
-              status: "active",
-              expiresAt: now + 4 * 60_000,
-              grantedAt: now - 60_000,
-              security: "full",
-              ask: "off",
-            },
-          },
-        },
-      },
+    hoisted.getTrustWindowMock.mockReturnValue({
+      status: "active",
+      expiresAt: now + 4 * 60_000,
+      grantedAt: now - 60_000,
+      security: "full",
+      ask: "off",
     });
 
     expect(trustStatusLine({ agentId: "main", now: () => now })).toBe("⚠️ Trust · 4m remaining");
@@ -236,21 +216,12 @@ describe("agent-runner-utils", () => {
 
   it("returns undefined when trust window is expired", () => {
     const now = 3_000_000;
-    hoisted.readExecApprovalsSnapshotMock.mockReturnValue({
-      file: {
-        version: 1,
-        agents: {
-          main: {
-            trustWindow: {
-              status: "active",
-              expiresAt: now - 1,
-              grantedAt: now - 60_000,
-              security: "full",
-              ask: "off",
-            },
-          },
-        },
-      },
+    hoisted.getTrustWindowMock.mockReturnValue({
+      status: "active",
+      expiresAt: now - 1,
+      grantedAt: now - 60_000,
+      security: "full",
+      ask: "off",
     });
 
     expect(trustStatusLine({ agentId: "main", now: () => now })).toBeUndefined();

@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCliRuntimeCapture } from "./test-runtime-capture.js";
 
 const callGatewayFromCli = vi.fn(
@@ -25,6 +25,9 @@ const localSnapshot = {
   hash: "hash-local",
   file: { version: 1, agents: {} },
 };
+
+const originalStdinIsTTY = process.stdin.isTTY;
+const originalStdoutIsTTY = process.stdout.isTTY;
 
 function resetLocalSnapshot() {
   localSnapshot.file = { version: 1, agents: {} };
@@ -78,6 +81,19 @@ describe("exec approvals CLI", () => {
     resetLocalSnapshot();
     resetRuntimeCapture();
     callGatewayFromCli.mockClear();
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    Object.defineProperty(process.stdout, "isTTY", { value: false, configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: originalStdinIsTTY,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: originalStdoutIsTTY,
+      configurable: true,
+    });
   });
 
   it("routes get command to local, gateway, and node modes", async () => {
@@ -187,19 +203,11 @@ describe("exec approvals CLI", () => {
 
   describe("untrust command", () => {
     it("clears an active trust window", async () => {
-      const now = Date.now();
       localSnapshot.file = {
         version: 1,
         agents: {
           main: {
             security: "allowlist",
-            trustWindow: {
-              status: "active",
-              expiresAt: now + 600_000,
-              grantedAt: now,
-              security: "full",
-              ask: "off",
-            },
           },
         },
       };
@@ -211,7 +219,7 @@ describe("exec approvals CLI", () => {
       expect(callGatewayFromCli).toHaveBeenCalledWith(
         "exec.approvals.untrust",
         expect.anything(),
-        expect.objectContaining({ agentId: "main", keepAudit: true }),
+        expect.objectContaining({ agentId: "main", keepAudit: false }),
       );
       expect(runtimeErrors).toHaveLength(0);
     });
@@ -237,7 +245,7 @@ describe("exec approvals CLI", () => {
       expect(callGatewayFromCli).toHaveBeenCalledWith(
         "exec.approvals.untrust",
         expect.anything(),
-        expect.objectContaining({ agentId: "main", keepAudit: true }),
+        expect.objectContaining({ agentId: "main", keepAudit: false }),
       );
       expect(saveExecApprovals).not.toHaveBeenCalled();
       expect(runtimeErrors).toHaveLength(0);
