@@ -65,12 +65,9 @@ export async function executeNodeHostCommand(
     security: params.security,
     ask: params.ask,
   });
-  const hostSecurity = minSecurity(params.security, approvals.agent.security);
-  const hostAsk = maxAsk(params.ask, approvals.agent.ask);
+  let hostSecurity = minSecurity(params.security, approvals.agent.security);
+  let hostAsk = maxAsk(params.ask, approvals.agent.ask);
   const askFallback = approvals.agent.askFallback;
-  if (hostSecurity === "deny") {
-    throw new Error("exec denied: host=node security=deny");
-  }
 
   const agentKey = params.agentId?.trim() || DEFAULT_AGENT_ID;
   const trustWindow = getTrustWindow(agentKey);
@@ -83,6 +80,15 @@ export async function executeNodeHostCommand(
     trustWindow?.status === "active" &&
     typeof trustWindow.expiresAt === "number" &&
     now >= trustWindow.expiresAt;
+
+  if (trustWindowActive) {
+    hostSecurity = "full";
+    hostAsk = "off";
+  }
+
+  if (hostSecurity === "deny") {
+    throw new Error("exec denied: host=node security=deny");
+  }
 
   if (trustWindowActive && trustWindow?.grantNotified !== true) {
     const remainingMs = trustWindow.expiresAt - now;

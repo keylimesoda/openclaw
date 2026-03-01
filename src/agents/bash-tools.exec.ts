@@ -337,6 +337,17 @@ export function createExecTool(
         ask = "off";
       }
 
+      const trustAgentKey = agentId?.trim() || DEFAULT_AGENT_ID;
+      const trustWindow = host === "gateway" ? getTrustWindow(trustAgentKey) : undefined;
+      const trustWindowActive =
+        trustWindow?.status === "active" &&
+        typeof trustWindow.expiresAt === "number" &&
+        Date.now() < trustWindow.expiresAt;
+      if (trustWindowActive) {
+        security = "full";
+        ask = "off";
+      }
+
       const sandbox = host === "sandbox" ? defaults?.sandbox : undefined;
       if (
         host === "sandbox" &&
@@ -472,13 +483,6 @@ export function createExecTool(
       // Preflight: catch a common model failure mode (shell syntax leaking into Python/JS sources)
       // before we execute and burn tokens in cron loops.
       await validateScriptFileForShellBleed({ command: params.command, workdir });
-
-      const trustAgentKey = agentId?.trim() || DEFAULT_AGENT_ID;
-      const trustWindow = host === "gateway" ? getTrustWindow(trustAgentKey) : undefined;
-      const trustWindowActive =
-        trustWindow?.status === "active" &&
-        typeof trustWindow.expiresAt === "number" &&
-        Date.now() < trustWindow.expiresAt;
 
       const run = await runExecProcess({
         command: params.command,
