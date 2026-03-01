@@ -1,5 +1,6 @@
 import {
   ensureExecApprovals,
+  getTrustWindow,
   grantTrustWindow,
   mergeExecApprovalsSocketDefaults,
   normalizeExecApprovals,
@@ -17,6 +18,7 @@ import {
   validateExecApprovalsNodeGetParams,
   validateExecApprovalsNodeSetParams,
   validateExecApprovalsSetParams,
+  validateExecApprovalsTrustStatusParams,
 } from "../protocol/index.js";
 import { resolveBaseHashParam } from "./base-hash.js";
 import {
@@ -194,8 +196,49 @@ export const execApprovalsHandlers: GatewayRequestHandlers = {
     });
   },
 
+  "exec.approvals.trust.status": ({ params, respond }) => {
+    if (
+      !assertValidParams(
+        params,
+        validateExecApprovalsTrustStatusParams,
+        "exec.approvals.trust.status",
+        respond,
+      )
+    ) {
+      return;
+    }
+    const p = params as { agentId?: string };
+    const agentId = p.agentId?.trim() || "main";
+    const trustWindow = getTrustWindow(agentId);
+    respond(
+      true,
+      {
+        agentId,
+        trustWindow: trustWindow
+          ? {
+              status: trustWindow.status,
+              expiresAt: trustWindow.expiresAt,
+              grantedAt: trustWindow.grantedAt,
+              grantedBy: trustWindow.grantedBy,
+              security: trustWindow.security,
+              ask: trustWindow.ask,
+            }
+          : null,
+      },
+      undefined,
+    );
+  },
+
   "exec.approvals.trust": ({ params, respond }) => {
-    const p = params as { agentId?: string; minutes?: number; grantedBy?: string; force?: boolean };
+    const p =
+      params && typeof params === "object"
+        ? (params as {
+            agentId?: string;
+            minutes?: number;
+            grantedBy?: string;
+            force?: boolean;
+          })
+        : {};
     const minutes = typeof p.minutes === "number" ? p.minutes : 0;
     const result = grantTrustWindow({
       agentId: p.agentId,
@@ -211,7 +254,10 @@ export const execApprovalsHandlers: GatewayRequestHandlers = {
   },
 
   "exec.approvals.untrust": ({ params, respond }) => {
-    const p = params as { agentId?: string; revokedBy?: string; keepAudit?: boolean };
+    const p =
+      params && typeof params === "object"
+        ? (params as { agentId?: string; revokedBy?: string; keepAudit?: boolean })
+        : {};
     const result = revokeTrustWindow({
       agentId: p.agentId,
       revokedBy: p.revokedBy,
