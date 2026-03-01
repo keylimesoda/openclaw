@@ -5,6 +5,7 @@ import {
   type ExecAsk,
   type ExecSecurity,
   evaluateShellAllowlist,
+  getTrustWindow,
   maxAsk,
   minSecurity,
   requiresExecApproval,
@@ -14,7 +15,13 @@ import {
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import { buildNodeShellCommand } from "../infra/node-shell.js";
 import { parsePreparedSystemRunPayload } from "../infra/system-run-approval-context.js";
+import {
+  summarizeTrustAudit,
+  cleanupTrustAudit,
+  appendTrustAuditEntry,
+} from "../infra/trust-audit.js";
 import { logInfo } from "../logger.js";
+import { DEFAULT_AGENT_ID } from "../routing/session-key.js";
 import {
   registerExecApprovalRequestForHost,
   waitForExecApprovalDecision,
@@ -63,6 +70,27 @@ export async function executeNodeHostCommand(
   const askFallback = approvals.agent.askFallback;
   if (hostSecurity === "deny") {
     throw new Error("exec denied: host=node security=deny");
+  }
+
+  const agentKey = params.agentId?.trim() || DEFAULT_AGENT_ID;
+  const trustWindow = getTrustWindow(agentKey);
+  const now = Date.now();
+  const trustWindowActive =
+    trustWindow?.status === "active" &&
+    typeof trustWindow.expiresAt === "number" &&
+    now < trustWindow.expiresAt;
+  const trustWindowExpired =
+    trustWindow?.status === "active" &&
+    typeof trustWindow.expiresAt === "number" &&
+    now >= trustWindow.expiresAt;
+
+  if (trustWindowActive && trustWindow?.grantNotified !== true) {
+    const remainingMs = trustWindow.expiresAt - now;
+    const remainingMin = Math.max(1, Math.ceil(remainingMs / 60_000));
+    emitExecSystemEvent(`🔓 Trust window active · expires in ${remainingMin}m`, {
+      sessionKey: params.notifySessionKey,
+    });
+    trustWindow.grantNotified = true;
   }
   if (params.boundNode && params.requestedNode && params.boundNode !== params.requestedNode) {
     throw new Error(`exec node not allowed (bound to ${params.boundNode})`);
@@ -182,6 +210,23 @@ export async function executeNodeHostCommand(
       analysisOk,
       allowlistSatisfied,
     }) || obfuscation.detected;
+
+  if (trustWindowExpired && trustWindow?.expiredNotified !== true) {
+    emitExecSystemEvent("🔒 Trust window expired. Exec approval required for new commands.", {
+      sessionKey: params.notifySessionKey,
+    });
+    const summary = summarizeTrustAudit({
+      agentId: agentKey,
+      startedAt: trustWindow.grantedAt,
+      endedAt: trustWindow.expiresAt ?? now,
+    });
+    if (summary) {
+      emitExecSystemEvent(summary, { sessionKey: params.notifySessionKey });
+    }
+    cleanupTrustAudit(agentKey);
+    trustWindow.expiredNotified = true;
+  }
+
   const invokeTimeoutMs = Math.max(
     10_000,
     (typeof params.timeoutSec === "number" ? params.timeoutSec : params.defaultTimeoutSec) * 1000 +
@@ -365,6 +410,17 @@ export async function executeNodeHostCommand(
   const errorText = typeof payloadObj.error === "string" ? payloadObj.error : "";
   const success = typeof payloadObj.success === "boolean" ? payloadObj.success : false;
   const exitCode = typeof payloadObj.exitCode === "number" ? payloadObj.exitCode : null;
+  const durationMs = Date.now() - startedAt;
+
+  if (trustWindowActive) {
+    appendTrustAuditEntry({
+      agentId: agentKey,
+      command: params.command,
+      exitCode: exitCode ?? (success ? 0 : null),
+      durationMs,
+    });
+  }
+
   return {
     content: [
       {
@@ -375,7 +431,7 @@ export async function executeNodeHostCommand(
     details: {
       status: success ? "completed" : "failed",
       exitCode,
-      durationMs: Date.now() - startedAt,
+      durationMs,
       aggregated: [stdout, stderr, errorText].filter(Boolean).join("\n"),
       cwd: params.workdir,
     } satisfies ExecToolDetails,

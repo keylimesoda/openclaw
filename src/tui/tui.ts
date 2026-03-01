@@ -9,6 +9,7 @@ import {
   TUI,
 } from "@mariozechner/pi-tui";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { trustStatusLine } from "../auto-reply/reply/agent-runner-utils.js";
 import { loadConfig } from "../config/config.js";
 import {
   buildAgentMainSessionKey,
@@ -729,6 +730,7 @@ export async function runTui(opts: TuiOptions) {
     const reasoning = sessionInfo.reasoningLevel ?? "off";
     const reasoningLabel =
       reasoning === "on" ? "reasoning" : reasoning === "stream" ? "reasoning:stream" : null;
+    const trustLine = trustStatusLine({ agentId: currentAgentId });
     const footerParts = [
       `agent ${agentLabel}`,
       `session ${sessionLabel}`,
@@ -737,6 +739,7 @@ export async function runTui(opts: TuiOptions) {
       verbose !== "off" ? `verbose ${verbose}` : null,
       reasoningLabel,
       tokens,
+      trustLine,
     ].filter(Boolean);
     footer.setText(theme.dim(footerParts.join(" | ")));
   };

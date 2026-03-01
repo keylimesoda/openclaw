@@ -2,15 +2,17 @@ import fs from "node:fs/promises";
 import type { Command } from "commander";
 import JSON5 from "json5";
 import {
+  ABSOLUTE_MAX_TRUST_MINUTES,
+  DEFAULT_MAX_TRUST_MINUTES,
+  grantTrustWindow,
   readExecApprovalsSnapshot,
+  revokeTrustWindow,
   saveExecApprovals,
   type ExecApprovalsAgent,
   type ExecApprovalsFile,
-  type ExecSecurity,
-  type ExecAsk,
-  type TrustWindow,
 } from "../infra/exec-approvals.js";
 import { formatTimeAgo } from "../infra/format-time/format-relative.ts";
+import { resolveTrustAuditPath } from "../infra/trust-audit.js";
 import { defaultRuntime } from "../runtime.js";
 import { formatDocsLink } from "../terminal/links.js";
 import { renderTable } from "../terminal/table.js";
@@ -485,9 +487,6 @@ export function registerExecApprovalsCli(program: Command) {
 
   // ── Trust Window Commands ──────────────────────────────────────────────
 
-  const DEFAULT_MAX_TRUST_MINUTES = 60;
-  const ABSOLUTE_MAX_TRUST_MINUTES = 480;
-
   type TrustOpts = ExecApprovalsCliOpts & {
     minutes?: string;
     yes?: boolean;
@@ -530,10 +529,6 @@ export function registerExecApprovalsCli(program: Command) {
         }
 
         const agentKey = opts.agent?.trim() || "main";
-        const now = Date.now();
-        const expiresAt = now + minutes * 60_000;
-        const expiresDate = new Date(expiresAt);
-        const timeStr = expiresDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
         // Interactive confirmation (unless --yes)
         if (!opts.yes) {
@@ -553,22 +548,13 @@ export function registerExecApprovalsCli(program: Command) {
           }
         }
 
-        const snapshot = loadSnapshotLocal();
-        const file = snapshot.file;
-        const agents = file.agents ?? {};
-        const agent = agents[agentKey] ?? {};
+        const result = grantTrustWindow({ agentId: agentKey, minutes, grantedBy: "cli" });
+        if (!result.ok) {
+          exitWithError(result.error);
+        }
 
-        const trustWindow: TrustWindow = {
-          status: "active",
-          expiresAt,
-          grantedAt: now,
-          security: "full" as ExecSecurity,
-          ask: "off" as ExecAsk,
-        };
-
-        agents[agentKey] = { ...agent, trustWindow };
-        file.agents = agents;
-        saveExecApprovals(file);
+        const expiresDate = new Date(result.expiresAt);
+        const timeStr = expiresDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
         defaultRuntime.log("");
         defaultRuntime.log(`🔓 Trust window active`);
@@ -584,34 +570,36 @@ export function registerExecApprovalsCli(program: Command) {
 
   type UntrustOpts = ExecApprovalsCliOpts & {
     agent?: string;
+    yes?: boolean;
+    keep?: boolean;
   };
 
   approvals
     .command("untrust")
     .description("Revoke an active trust window immediately")
     .option("--agent <id>", "Agent id (defaults to main)")
+    .option("--yes", "Skip confirmation and auto-delete audit log", false)
+    .option("--keep", "Preserve the audit log file after summary", false)
     .action(async (opts: UntrustOpts) => {
       try {
         const agentKey = opts.agent?.trim() || "main";
-        const snapshot = loadSnapshotLocal();
-        const file = snapshot.file;
-        const agents = file.agents ?? {};
-        const agent = agents[agentKey];
 
-        if (!agent?.trustWindow || agent.trustWindow.status !== "active") {
-          defaultRuntime.log(`No active trust window for agent "${agentKey}".`);
+        // Check for active window to get remaining time for display
+        const snapshot = loadSnapshotLocal();
+        const agent = (snapshot.file.agents ?? {})[agentKey];
+        const now = Date.now();
+        const wasActive =
+          agent?.trustWindow?.status === "active" && agent.trustWindow.expiresAt > now;
+        const remainingMin = wasActive
+          ? Math.ceil((agent.trustWindow!.expiresAt - now) / 60_000)
+          : 0;
+
+        // Always keep audit here — CLI handles cleanup after interactive prompt
+        const result = revokeTrustWindow({ agentId: agentKey, revokedBy: "cli", keepAudit: true });
+        if (!result.ok) {
+          defaultRuntime.log(result.error);
           return;
         }
-
-        const wasActive = agent.trustWindow.expiresAt > Date.now();
-        const remainingMs = wasActive ? agent.trustWindow.expiresAt - Date.now() : 0;
-        const remainingMin = Math.ceil(remainingMs / 60_000);
-
-        // Remove the trust window
-        const { trustWindow: _, ...agentWithout } = agent;
-        agents[agentKey] = agentWithout;
-        file.agents = agents;
-        saveExecApprovals(file);
 
         if (wasActive) {
           defaultRuntime.log(
@@ -621,6 +609,40 @@ export function registerExecApprovalsCli(program: Command) {
           defaultRuntime.log(`🔒 Expired trust window cleared for agent "${agentKey}".`);
         }
         defaultRuntime.log(`   Normal approval policy restored.`);
+
+        if (result.summary) {
+          defaultRuntime.log("");
+          defaultRuntime.log(result.summary);
+        }
+
+        // Determine whether to keep or delete the audit log (AFTER showing summary)
+        const auditPath = resolveTrustAuditPath(agentKey);
+        const auditExists = (await import("node:fs")).existsSync(auditPath);
+        let shouldDelete = true;
+        if (auditExists) {
+          if (opts.keep) {
+            shouldDelete = false;
+          } else if (opts.yes) {
+            shouldDelete = true;
+          } else if (process.stdin.isTTY) {
+            const readline = await import("node:readline");
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            const answer = await new Promise<string>((resolve) => {
+              rl.question(`\n  Delete audit log? [Y/n] `, resolve);
+            });
+            rl.close();
+            const trimmed = answer.trim().toLowerCase();
+            shouldDelete = trimmed === "" || trimmed === "y" || trimmed === "yes";
+          }
+        }
+
+        if (shouldDelete && auditExists) {
+          const { cleanupTrustAudit } = await import("../infra/trust-audit.js");
+          cleanupTrustAudit(agentKey);
+        } else if (auditExists) {
+          defaultRuntime.log("");
+          defaultRuntime.log(theme.muted(`Audit log preserved at ${auditPath}`));
+        }
       } catch (err) {
         defaultRuntime.error(formatCliError(err));
         defaultRuntime.exit(1);

@@ -53,6 +53,8 @@ vi.mock("../infra/exec-approvals.js", async () => {
     ...actual,
     readExecApprovalsSnapshot: () => localSnapshot,
     saveExecApprovals: vi.fn(),
+    grantTrustWindow: vi.fn(),
+    revokeTrustWindow: vi.fn(),
   };
 });
 
@@ -202,15 +204,15 @@ describe("exec approvals CLI", () => {
         },
       };
 
-      const saveExecApprovals = vi.mocked(execApprovals.saveExecApprovals);
-      saveExecApprovals.mockClear();
+      const revokeTrustWindow = vi.mocked(execApprovals.revokeTrustWindow);
+      revokeTrustWindow.mockClear();
+      revokeTrustWindow.mockReturnValue({ ok: true, agentId: "main", summary: undefined });
 
       await runApprovalsCommand(["approvals", "untrust"]);
 
-      expect(saveExecApprovals).toHaveBeenCalled();
-      const savedFile = saveExecApprovals.mock.calls[0][0];
-      expect(savedFile.agents?.main?.trustWindow).toBeUndefined();
-      expect(savedFile.agents?.main?.security).toBe("allowlist");
+      expect(revokeTrustWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: "main", keepAudit: true }),
+      );
       expect(runtimeErrors).toHaveLength(0);
     });
 

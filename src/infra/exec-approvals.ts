@@ -4,6 +4,7 @@ import path from "node:path";
 import { DEFAULT_AGENT_ID } from "../routing/session-key.js";
 import { expandHomePrefix } from "./home-dir.js";
 import { requestJsonlSocket } from "./jsonl-socket.js";
+import { summarizeTrustAudit, cleanupTrustAudit } from "./trust-audit.js";
 export * from "./exec-approvals-analysis.js";
 export * from "./exec-approvals-allowlist.js";
 
@@ -85,6 +86,8 @@ export type TrustWindow = {
   grantedBy?: string;
   security: ExecSecurity;
   ask: ExecAsk;
+  expiredNotified?: boolean;
+  grantNotified?: boolean;
 };
 
 export type ExecApprovalsAgent = ExecApprovalsDefaults & {
@@ -129,6 +132,17 @@ const DEFAULT_ASK_FALLBACK: ExecSecurity = "deny";
 const DEFAULT_AUTO_ALLOW_SKILLS = false;
 const DEFAULT_SOCKET = "~/.openclaw/exec-approvals.sock";
 const DEFAULT_FILE = "~/.openclaw/exec-approvals.json";
+
+const trustWindowCache = new Map<string, TrustWindow>();
+
+export function initTrustWindowCache() {
+  trustWindowCache.clear();
+}
+
+export function getTrustWindow(agentId?: string): TrustWindow | undefined {
+  const key = agentId?.trim() || DEFAULT_AGENT_ID;
+  return trustWindowCache.get(key);
+}
 
 function hashExecApprovalsRaw(raw: string | null): string {
   return crypto
@@ -349,6 +363,107 @@ export function saveExecApprovals(file: ExecApprovalsFile) {
   }
 }
 
+// ── Shared trust window operations ──────────────────────────────────
+
+export const DEFAULT_MAX_TRUST_MINUTES = 60;
+export const ABSOLUTE_MAX_TRUST_MINUTES = 480;
+
+export type GrantTrustResult =
+  | { ok: true; agentId: string; expiresAt: number }
+  | { ok: false; error: string };
+
+export type RevokeTrustResult =
+  | { ok: true; agentId: string; summary: string | undefined }
+  | { ok: false; error: string };
+
+export function grantTrustWindow(params: {
+  agentId?: string;
+  minutes: number;
+  grantedBy?: string;
+}): GrantTrustResult {
+  const agentId = params.agentId?.trim() || "main";
+  const { minutes } = params;
+
+  if (minutes <= 0 || minutes > ABSOLUTE_MAX_TRUST_MINUTES) {
+    return { ok: false, error: `minutes must be between 1 and ${ABSOLUTE_MAX_TRUST_MINUTES}` };
+  }
+
+  const now = Date.now();
+  const existing = trustWindowCache.get(agentId);
+  if (existing?.status === "active" && existing.expiresAt > now) {
+    const remainingMin = Math.ceil((existing.expiresAt - now) / 60_000);
+    return {
+      ok: false,
+      error: `Trust window already active (${remainingMin}m remaining). Revoke it first.`,
+    };
+  }
+
+  ensureExecApprovals();
+  const snapshot = readExecApprovalsSnapshot();
+  const file = snapshot.file;
+  const agents = file.agents ?? {};
+  const agent = agents[agentId] ?? {};
+
+  const expiresAt = now + minutes * 60_000;
+  const trustWindow: TrustWindow = {
+    status: "active" as const,
+    expiresAt,
+    grantedAt: now,
+    grantedBy: params.grantedBy,
+    security: "full" as ExecSecurity,
+    ask: "off" as ExecAsk,
+    expiredNotified: false,
+    grantNotified: false,
+  };
+
+  trustWindowCache.set(agentId, trustWindow);
+
+  agents[agentId] = { ...agent, trustWindow };
+  file.agents = agents;
+  saveExecApprovals(file);
+
+  return { ok: true, agentId, expiresAt };
+}
+
+export function revokeTrustWindow(params: {
+  agentId?: string;
+  revokedBy?: string;
+  keepAudit?: boolean;
+}): RevokeTrustResult {
+  const agentId = params.agentId?.trim() || "main";
+
+  const trustWindow = trustWindowCache.get(agentId);
+  if (!trustWindow || trustWindow.status !== "active") {
+    return { ok: false, error: `No active trust window for agent "${agentId}"` };
+  }
+
+  ensureExecApprovals();
+  const snapshot = readExecApprovalsSnapshot();
+  const file = snapshot.file;
+  const agents = file.agents ?? {};
+  const agent = agents[agentId];
+
+  const now = Date.now();
+  const endAt = trustWindow.expiresAt > now ? now : (trustWindow.expiresAt ?? now);
+  const summary = summarizeTrustAudit({
+    agentId,
+    startedAt: trustWindow.grantedAt,
+    endedAt: endAt,
+  });
+  if (!params.keepAudit) {
+    cleanupTrustAudit(agentId);
+  }
+
+  trustWindowCache.delete(agentId);
+
+  const { trustWindow: _, ...agentWithout } = agent ?? {};
+  agents[agentId] = agentWithout;
+  file.agents = agents;
+  saveExecApprovals(file);
+
+  return { ok: true, agentId, summary: summary ?? undefined };
+}
+
 export function ensureExecApprovals(): ExecApprovalsFile {
   const loaded = loadExecApprovals();
   const next = normalizeExecApprovals(loaded);
@@ -443,7 +558,7 @@ export function resolveExecApprovalsFromFile(params: {
   };
   // Trust window override: if active and not expired, override agent security/ask.
   // Pure read — no side effects. Expired windows are ignored, not cleaned up here.
-  const trustWindow = agent.trustWindow;
+  const trustWindow = getTrustWindow(agentKey);
   const trustWindowActive =
     trustWindow?.status === "active" &&
     typeof trustWindow.expiresAt === "number" &&
