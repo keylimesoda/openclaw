@@ -512,6 +512,10 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     // Register trust/untrust commands in every configured guild
     if (nativeEnabled && guildEntries) {
       for (const guildId of Object.keys(guildEntries)) {
+        // Skip non-Snowflake keys (slugs, wildcards) — only valid numeric IDs work as guildId
+        if (!/^\d{17,20}$/.test(guildId)) {
+          continue;
+        }
         const trustCtx = {
           cfg,
           discordConfig: discordCfg,

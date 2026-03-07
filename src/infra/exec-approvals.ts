@@ -163,7 +163,7 @@ export function initTrustWindowCache() {
 }
 
 export function getTrustWindow(agentId?: string): TrustWindow | undefined {
-  const key = agentId?.trim() || DEFAULT_AGENT_ID;
+  const key = (agentId?.trim() || DEFAULT_AGENT_ID).toLowerCase();
   return trustWindowCache.get(key);
 }
 
@@ -405,7 +405,7 @@ export function grantTrustWindow(params: {
   grantedBy?: string;
   force?: boolean;
 }): GrantTrustResult {
-  const agentId = params.agentId?.trim() || "main";
+  const agentId = (params.agentId?.trim() || "main").toLowerCase();
   if (agentId.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
     return {
       ok: false,
@@ -460,7 +460,7 @@ export function revokeTrustWindow(params: {
   revokedBy?: string;
   keepAudit?: boolean;
 }): RevokeTrustResult {
-  const agentId = params.agentId?.trim() || "main";
+  const agentId = (params.agentId?.trim() || "main").toLowerCase();
   if (agentId.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(agentId)) {
     return {
       ok: false,
