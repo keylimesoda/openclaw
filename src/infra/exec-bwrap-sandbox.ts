@@ -10,7 +10,7 @@
  * - bubblewrap (`bwrap`) installed (ships with Fedora/Ubuntu via Flatpak deps)
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -36,6 +36,8 @@ export interface BuildBwrapArgsParams {
   workdir: string;
   /** Additional bind mounts. */
   extraBinds?: readonly BwrapExtraBind[];
+  /** Extra shell binaries to mount (e.g. from getShellConfig). */
+  extraShellBinaries?: readonly string[];
 }
 
 // ── Constants ──────────────────────────────────────────────────────
@@ -60,10 +62,14 @@ const SYSTEM_CONFIG_PATHS = [
   "/etc/alternatives",
 ];
 
-// ── Bwrap Detection (cached) ──────────────────────────────────────
+// ── Bwrap Detection (cached after first probe) ───────────────────
 
 let _bwrapPath: string | false | undefined;
 
+/**
+ * Check if bwrap is available (sync, cached).
+ * First call may block briefly; subsequent calls return immediately.
+ */
 export function isBwrapAvailable(): boolean {
   if (_bwrapPath !== undefined) {
     return _bwrapPath !== false;
@@ -79,6 +85,27 @@ export function isBwrapAvailable(): boolean {
     _bwrapPath = false;
   }
   return _bwrapPath !== false;
+}
+
+/**
+ * Async variant of isBwrapAvailable — prefer this in hot paths
+ * to avoid blocking the event loop on first probe.
+ */
+export function isBwrapAvailableAsync(): Promise<boolean> {
+  if (_bwrapPath !== undefined) {
+    return Promise.resolve(_bwrapPath !== false);
+  }
+  return new Promise((resolve) => {
+    execFile("which", ["bwrap"], { timeout: 3000 }, (err, stdout) => {
+      if (err || !stdout?.trim()) {
+        _bwrapPath = false;
+        resolve(false);
+      } else {
+        _bwrapPath = stdout.trim();
+        resolve(true);
+      }
+    });
+  });
 }
 
 export function getBwrapPath(): string {
@@ -127,9 +154,9 @@ export function normalizeBwrapExtraBinds(value: unknown): BwrapExtraBind[] {
  * Build the argv prefix for a bwrap-sandboxed command.
  *
  * Returns an array like:
- *   ["bwrap", "--unshare-all", "--share-net", ..., "--"]
+ *   ["bwrap", "--unshare-all", "--share-net", ...]
  *
- * The caller appends the actual command after "--":
+ * The caller appends the separator and the actual command:
  *   [...buildBwrapArgs(params), "--", "sh", "-c", command]
  */
 export function buildBwrapArgs(params: BuildBwrapArgsParams): string[] {
@@ -155,7 +182,14 @@ export function buildBwrapArgs(params: BuildBwrapArgsParams): string[] {
   args.push("--tmpfs", "/tmp");
 
   // ── Shell binaries (always needed for sh -c execution) ──
-  for (const name of SHELL_BINARIES) {
+  // Mount defaults plus any extra shells from getShellConfig()
+  const allShells = new Set(SHELL_BINARIES);
+  if (params.extraShellBinaries) {
+    for (const s of params.extraShellBinaries) {
+      allShells.add(s);
+    }
+  }
+  for (const name of allShells) {
     const resolved = resolveInDirs(name, params.trustedSafeBinDirs);
     if (resolved) {
       addBind(resolved, resolved, false);

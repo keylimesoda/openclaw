@@ -145,6 +145,27 @@ export async function processGatewayAllowlist(
     );
   }
 
+  // Pre-compute bwrap eligibility for both approval and non-approval paths.
+  const matchedViaSafeBins = allowlistEval.segmentSatisfiedBy.some((by) => by === "safeBins");
+  const bwrapEligible =
+    matchedViaSafeBins &&
+    !params.pty &&
+    params.nsSandboxMode === "bwrap" &&
+    hostSecurity === "allowlist" &&
+    analysisOk &&
+    allowlistSatisfied &&
+    process.platform === "linux" &&
+    isBwrapAvailable();
+  const makeBwrapParams = (): BuildBwrapArgsParams | undefined =>
+    bwrapEligible
+      ? {
+          safeBins: params.safeBins,
+          trustedSafeBinDirs: params.trustedSafeBinDirs ?? new Set(["/bin", "/usr/bin"]),
+          workdir: params.workdir,
+          extraBinds: params.nsSandboxExtraBinds,
+        }
+      : undefined;
+
   if (requiresAsk) {
     const {
       approvalId,
@@ -259,6 +280,7 @@ export async function processGatewayAllowlist(
           env: params.env,
           sandbox: undefined,
           containerWorkdir: null,
+          bwrapSandbox: makeBwrapParams(),
           usePty: params.pty,
           warnings: params.warnings,
           maxOutput: params.maxOutput,
@@ -335,24 +357,5 @@ export async function processGatewayAllowlist(
 
   recordMatchedAllowlistUse(allowlistEval.segments[0]?.resolution?.resolvedPath);
 
-  // Build bwrap sandbox params when namespace sandboxing is enabled and command matched safeBins.
-  // Trust window already bypasses this path (sets hostSecurity = "full" above).
-  let bwrapSandbox: BuildBwrapArgsParams | undefined;
-  if (
-    params.nsSandboxMode === "bwrap" &&
-    hostSecurity === "allowlist" &&
-    analysisOk &&
-    allowlistSatisfied &&
-    process.platform === "linux" &&
-    isBwrapAvailable()
-  ) {
-    bwrapSandbox = {
-      safeBins: params.safeBins,
-      trustedSafeBinDirs: params.trustedSafeBinDirs ?? new Set(["/bin", "/usr/bin"]),
-      workdir: params.workdir,
-      extraBinds: params.nsSandboxExtraBinds,
-    };
-  }
-
-  return { execCommandOverride: enforcedCommand, bwrapSandbox };
+  return { execCommandOverride: enforcedCommand, bwrapSandbox: makeBwrapParams() };
 }
