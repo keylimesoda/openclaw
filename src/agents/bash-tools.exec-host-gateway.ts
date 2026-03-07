@@ -9,6 +9,8 @@ import {
   requiresExecApproval,
   resolveAllowAlwaysPatterns,
 } from "../infra/exec-approvals.js";
+import type { BwrapExtraBind, BuildBwrapArgsParams } from "../infra/exec-bwrap-sandbox.js";
+import { isBwrapAvailable } from "../infra/exec-bwrap-sandbox.js";
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
 import { logInfo } from "../logger.js";
@@ -57,10 +59,16 @@ export type ProcessGatewayAllowlistParams = {
   maxOutput: number;
   pendingMaxOutput: number;
   trustedSafeBinDirs?: ReadonlySet<string>;
+  /** Namespace sandbox mode for safeBins commands ("none" | "bwrap"). */
+  nsSandboxMode?: string;
+  /** Extra bind mounts for namespace sandbox. */
+  nsSandboxExtraBinds?: readonly BwrapExtraBind[];
 };
 
 export type ProcessGatewayAllowlistResult = {
   execCommandOverride?: string;
+  /** bwrap sandbox params to pass to runExecProcess when safeBins matched and sandbox is enabled. */
+  bwrapSandbox?: BuildBwrapArgsParams;
   pendingResult?: AgentToolResult<ExecToolDetails>;
 };
 
@@ -327,5 +335,24 @@ export async function processGatewayAllowlist(
 
   recordMatchedAllowlistUse(allowlistEval.segments[0]?.resolution?.resolvedPath);
 
-  return { execCommandOverride: enforcedCommand };
+  // Build bwrap sandbox params when namespace sandboxing is enabled and command matched safeBins.
+  // Trust window already bypasses this path (sets hostSecurity = "full" above).
+  let bwrapSandbox: BuildBwrapArgsParams | undefined;
+  if (
+    params.nsSandboxMode === "bwrap" &&
+    hostSecurity === "allowlist" &&
+    analysisOk &&
+    allowlistSatisfied &&
+    process.platform === "linux" &&
+    isBwrapAvailable()
+  ) {
+    bwrapSandbox = {
+      safeBins: params.safeBins,
+      trustedSafeBinDirs: params.trustedSafeBinDirs ?? new Set(["/bin", "/usr/bin"]),
+      workdir: params.workdir,
+      extraBinds: params.nsSandboxExtraBinds,
+    };
+  }
+
+  return { execCommandOverride: enforcedCommand, bwrapSandbox };
 }
