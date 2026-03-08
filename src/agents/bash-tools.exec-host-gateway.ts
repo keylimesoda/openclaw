@@ -34,6 +34,7 @@ import {
   runExecProcess,
 } from "./bash-tools.exec-runtime.js";
 import type { ExecToolDetails } from "./bash-tools.exec-types.js";
+import { getShellConfig } from "./shell-utils.js";
 
 export type ProcessGatewayAllowlistParams = {
   command: string;
@@ -146,7 +147,12 @@ export async function processGatewayAllowlist(
   }
 
   // Pre-compute bwrap eligibility for both approval and non-approval paths.
-  const matchedViaSafeBins = allowlistEval.segmentSatisfiedBy.some((by) => by === "safeBins");
+  // All segments must be satisfied by safeBins for bwrap to apply.
+  // A mixed command (some safeBins, some regular allowlist) would break because
+  // non-safeBins binaries aren't mounted inside the namespace.
+  const matchedViaSafeBins =
+    allowlistEval.segmentSatisfiedBy.length > 0 &&
+    allowlistEval.segmentSatisfiedBy.every((by) => by === "safeBins");
   const bwrapEligible =
     matchedViaSafeBins &&
     !params.pty &&
@@ -156,15 +162,23 @@ export async function processGatewayAllowlist(
     allowlistSatisfied &&
     process.platform === "linux" &&
     isBwrapAvailable();
-  const makeBwrapParams = (): BuildBwrapArgsParams | undefined =>
-    bwrapEligible
-      ? {
-          safeBins: params.safeBins,
-          trustedSafeBinDirs: params.trustedSafeBinDirs ?? new Set(["/bin", "/usr/bin"]),
-          workdir: params.workdir,
-          extraBinds: params.nsSandboxExtraBinds,
-        }
-      : undefined;
+  const makeBwrapParams = (): BuildBwrapArgsParams | undefined => {
+    if (!bwrapEligible) {
+      return undefined;
+    }
+    // Extract the shell binary name so bwrap mounts it inside the namespace.
+    const shellConfig = getShellConfig();
+    const shellBaseName = shellConfig.shell.includes("/")
+      ? shellConfig.shell.split("/").pop()!
+      : shellConfig.shell;
+    return {
+      safeBins: params.safeBins,
+      trustedSafeBinDirs: params.trustedSafeBinDirs ?? new Set(["/bin", "/usr/bin"]),
+      workdir: params.workdir,
+      extraBinds: params.nsSandboxExtraBinds,
+      extraShellBinaries: [shellBaseName],
+    };
+  };
 
   if (requiresAsk) {
     const {
