@@ -18,7 +18,10 @@ type TrustCommandContext = {
   guildId?: string;
 };
 
-import { DEFAULT_MAX_TRUST_MINUTES } from "../../infra/exec-approvals.js";
+import {
+  DEFAULT_MAX_TRUST_MINUTES,
+  ABSOLUTE_MAX_TRUST_MINUTES,
+} from "../../infra/exec-approvals.js";
 
 function isOwnerAuthorized(
   interaction: CommandInteraction,
@@ -34,6 +37,12 @@ function isOwnerAuthorized(
     ["discord:", "user:", "pk:"],
   );
   if (!ownerAllowList) {
+    return false;
+  }
+  // Trust commands require explicit user ID match — wildcards ("*") are
+  // intentionally rejected.  Granting unrestricted exec is a privileged
+  // operation; only specifically-listed owner IDs may perform it.
+  if (ownerAllowList.allowAll) {
     return false;
   }
   return allowListMatches(
@@ -108,11 +117,17 @@ class DiscordTrustCommand extends Command {
   options: CommandOptions = [
     {
       name: "minutes",
-      description: `Duration in minutes (default: ${DEFAULT_MAX_TRUST_MINUTES}, max: ${DEFAULT_MAX_TRUST_MINUTES})`,
+      description: `Duration in minutes (default: ${DEFAULT_MAX_TRUST_MINUTES}, max: ${ABSOLUTE_MAX_TRUST_MINUTES} with force)`,
       type: ApplicationCommandOptionType.Number,
       required: false,
       min_value: 1,
-      max_value: DEFAULT_MAX_TRUST_MINUTES,
+      max_value: ABSOLUTE_MAX_TRUST_MINUTES,
+    },
+    {
+      name: "force",
+      description: `Allow exceeding default ${DEFAULT_MAX_TRUST_MINUTES}m cap (up to ${ABSOLUTE_MAX_TRUST_MINUTES}m)`,
+      type: ApplicationCommandOptionType.Boolean,
+      required: false,
     },
     {
       name: "agent",
@@ -143,12 +158,14 @@ class DiscordTrustCommand extends Command {
     }
 
     const minutes = interaction.options.getNumber("minutes") ?? DEFAULT_MAX_TRUST_MINUTES;
+    const force = interaction.options.getBoolean("force") ?? false;
     const agentId = interaction.options.getString("agent")?.trim() || "main";
 
     try {
       const result = (await callGatewayRpc(this.ctx.cfg, "exec.approvals.trust", {
         agentId,
         minutes,
+        force,
         grantedBy: `discord:${interaction.user?.id ?? "unknown"}`,
       })) as { ok: boolean; agentId: string; expiresAt?: number; message?: string };
 

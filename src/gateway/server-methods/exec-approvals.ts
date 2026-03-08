@@ -247,7 +247,11 @@ export const execApprovalsHandlers: GatewayRequestHandlers = {
       force: p.force,
     });
     if (!result.ok) {
-      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, result.error));
+      respond(
+        true,
+        { ok: false, agentId: p.agentId?.trim() || "main", message: result.error },
+        undefined,
+      );
       return;
     }
     respond(true, { ok: true, expiresAt: result.expiresAt, agentId: result.agentId }, undefined);
@@ -264,7 +268,11 @@ export const execApprovalsHandlers: GatewayRequestHandlers = {
       keepAudit: p.keepAudit,
     });
     if (!result.ok) {
-      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, result.error));
+      respond(
+        true,
+        { ok: false, agentId: p.agentId?.trim() || "main", message: result.error },
+        undefined,
+      );
       return;
     }
     if (!p.keepAudit) {
