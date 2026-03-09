@@ -10,6 +10,8 @@ import {
   requiresExecApproval,
   resolveAllowAlwaysPatterns,
 } from "../infra/exec-approvals.js";
+import type { BwrapExtraBind, BuildBwrapArgsParams } from "../infra/exec-bwrap-sandbox.js";
+import { isBwrapAvailable } from "../infra/exec-bwrap-sandbox.js";
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
 import { summarizeTrustAudit, cleanupTrustAudit } from "../infra/trust-audit.js";
@@ -35,6 +37,7 @@ import {
   runExecProcess,
 } from "./bash-tools.exec-runtime.js";
 import type { ExecToolDetails } from "./bash-tools.exec-types.js";
+import { getShellConfig } from "./shell-utils.js";
 
 export type ProcessGatewayAllowlistParams = {
   command: string;
@@ -60,10 +63,16 @@ export type ProcessGatewayAllowlistParams = {
   maxOutput: number;
   pendingMaxOutput: number;
   trustedSafeBinDirs?: ReadonlySet<string>;
+  /** Namespace sandbox mode for safeBins commands ("none" | "bwrap"). */
+  nsSandboxMode?: string;
+  /** Extra bind mounts for namespace sandbox. */
+  nsSandboxExtraBinds?: readonly BwrapExtraBind[];
 };
 
 export type ProcessGatewayAllowlistResult = {
   execCommandOverride?: string;
+  /** bwrap sandbox params to pass to runExecProcess when safeBins matched and sandbox is enabled. */
+  bwrapSandbox?: BuildBwrapArgsParams;
   pendingResult?: AgentToolResult<ExecToolDetails>;
 };
 
@@ -170,24 +179,61 @@ export async function processGatewayAllowlist(
     );
   }
 
-  if (trustWindowExpired && trustWindow?.expiredNotified !== true) {
+    // Pre-compute bwrap eligibility for both approval and non-approval paths.
+    // All segments must be satisfied by safeBins for bwrap to apply.
+    // A mixed command (some safeBins, some regular allowlist) would break because
+    // non-safeBins binaries aren't mounted inside the namespace.
+    const matchedViaSafeBins =
+    allowlistEval.segmentSatisfiedBy .length > 0 &&
+    allowlistEval.segmentSatisfiedBy .every((by) => by === "safeBins");
+    const bwrapEligible =
+    matchedViaSafeBins &&
+    !params.pty &&
+    params.nsSandboxMode === "bwrap" &&
+    hostSecurity === "allowlist" &&
+    analysisOk &&
+    allowlistSatisfied &&
+    process.platform === "linux" &&
+    isBwrapAvailable();
+    const makeBwrapParams = (): BuildBwrapArgsParams | undefined => {
+    if (!bwrapEligible) {
+    return undefined;
+    }
+    // Extract the shell binary name so bwrap mounts it inside the namespace.
+    const shellConfig = getShellConfig();
+    const shellBaseName = shellConfig.shell.includes("/")
+    ? shellConfig.shell.split("/").pop()!
+    : shellConfig.shell;
+    return {
+    safeBins: params.safeBins,
+    trustedSafeBinDirs: params.trustedSafeBinDirs ?? new Set(["/bin", "/usr/bin"]),
+    workdir: params.workdir,
+    extraBinds: params.nsSandboxExtraBinds,
+    extraShellBinaries: [shellBaseName],
+    };
+    };
+
+    if (trustWindowExpired && trustWindow?.expiredNotified !== true) {
     emitExecSystemEvent("🔒 Trust window expired. Exec approval required for new commands.", {
-      sessionKey: params.notifySessionKey,
+    sessionKey: params.notifySessionKey,
     });
     const summary = summarizeTrustAudit({
-      agentId: agentKey,
-      startedAt: trustWindow.grantedAt,
-      endedAt: trustWindow.expiresAt ?? now,
+    agentId: agentKey,
+    startedAt: trustWindow.grantedAt,
+    endedAt: trustWindow.expiresAt ?? now,
     });
     if (summary) {
-      emitExecSystemEvent(summary, { sessionKey: params.notifySessionKey });
+    emitExecSystemEvent(summary, { sessionKey: params.notifySessionKey });
     }
     // TODO: Future enhancement — emit Discord buttons [Keep] / [Delete] for audit log
     // retention on expiry, with delete-on-timeout default. For now, auto-delete.
     cleanupTrustAudit(agentKey);
     trustWindow.expiredNotified = true;
-  }
-
+    }
+  
+  
+  
+  
   if (requiresAsk) {
     const {
       approvalId,
@@ -302,6 +348,7 @@ export async function processGatewayAllowlist(
           env: params.env,
           sandbox: undefined,
           containerWorkdir: null,
+          bwrapSandbox: makeBwrapParams(),
           usePty: params.pty,
           warnings: params.warnings,
           maxOutput: params.maxOutput,
@@ -378,5 +425,5 @@ export async function processGatewayAllowlist(
 
   recordMatchedAllowlistUse(allowlistEval.segments[0]?.resolution?.resolvedPath);
 
-  return { execCommandOverride: enforcedCommand };
+  return { execCommandOverride: enforcedCommand, bwrapSandbox: makeBwrapParams() };
 }
