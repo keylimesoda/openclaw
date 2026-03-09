@@ -144,6 +144,14 @@ import {
   NodeDescribeParamsSchema,
   type NodeEventParams,
   NodeEventParamsSchema,
+  type NodePendingDrainParams,
+  NodePendingDrainParamsSchema,
+  type NodePendingDrainResult,
+  NodePendingDrainResultSchema,
+  type NodePendingEnqueueParams,
+  NodePendingEnqueueParamsSchema,
+  type NodePendingEnqueueResult,
+  NodePendingEnqueueResultSchema,
   type NodeInvokeParams,
   NodeInvokeParamsSchema,
   type NodeInvokeResultParams,
@@ -300,6 +308,12 @@ export const validateNodeInvokeResultParams = ajv.compile<NodeInvokeResultParams
   NodeInvokeResultParamsSchema,
 );
 export const validateNodeEventParams = ajv.compile<NodeEventParams>(NodeEventParamsSchema);
+export const validateNodePendingDrainParams = ajv.compile<NodePendingDrainParams>(
+  NodePendingDrainParamsSchema,
+);
+export const validateNodePendingEnqueueParams = ajv.compile<NodePendingEnqueueParams>(
+  NodePendingEnqueueParamsSchema,
+);
 export const validatePushTestParams = ajv.compile<PushTestParams>(PushTestParamsSchema);
 export const validateSecretsResolveParams = ajv.compile<SecretsResolveParams>(
   SecretsResolveParamsSchema,
@@ -479,6 +493,10 @@ export {
   NodeListParamsSchema,
   NodePendingAckParamsSchema,
   NodeInvokeParamsSchema,
+  NodePendingDrainParamsSchema,
+  NodePendingDrainResultSchema,
+  NodePendingEnqueueParamsSchema,
+  NodePendingEnqueueResultSchema,
   SessionsListParamsSchema,
   SessionsPreviewParamsSchema,
   SessionsPatchParamsSchema,
@@ -628,6 +646,10 @@ export type {
   NodeInvokeParams,
   NodeInvokeResultParams,
   NodeEventParams,
+  NodePendingDrainParams,
+  NodePendingDrainResult,
+  NodePendingEnqueueParams,
+  NodePendingEnqueueResult,
   SessionsListParams,
   SessionsPreviewParams,
   SessionsResolveParams,
