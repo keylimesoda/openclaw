@@ -40,6 +40,7 @@ export {
   mergeAllowFromEntries,
   promptAccountId,
   resolveAccountIdForConfigure,
+  setTopLevelChannelDmPolicyWithAllowFrom,
 } from "../channels/plugins/onboarding/helpers.js";
 export { PAIRING_APPROVED_MESSAGE } from "../channels/plugins/pairing-message.js";
 export {
@@ -74,6 +75,7 @@ export {
   resolveServicePrefixedTarget,
 } from "../imessage/target-parsing-helpers.js";
 export { stripMarkdown } from "../line/markdown-to-line.js";
+export { parseFiniteNumber } from "../infra/parse-finite-number.js";
 export { emptyPluginConfigSchema } from "../plugins/config-schema.js";
 export type { PluginRuntime } from "../plugins/runtime/types.js";
 export type { OpenClawPluginApi } from "../plugins/types.js";
@@ -87,6 +89,7 @@ export { formatDocsLink } from "../terminal/links.js";
 export type { WizardPrompter } from "../wizard/prompts.js";
 export { isAllowedParsedChatSender } from "./allow-from.js";
 export { readBooleanParam } from "./boolean-param.js";
+export { mapAllowFromEntries } from "./channel-config-helpers.js";
 export { createScopedPairingAccess } from "./pairing-access.js";
 export { issuePairingChallenge } from "../pairing/pairing-challenge.js";
 export { resolveRequestUrl } from "./request-url.js";
@@ -105,4 +108,5 @@ export {
   registerWebhookTargetWithPluginRoute,
   resolveWebhookTargets,
   resolveWebhookTargetWithAuthOrRejectSync,
+  withResolvedWebhookRequestPipeline,
 } from "./webhook-targets.js";

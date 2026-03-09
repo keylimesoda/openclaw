@@ -4,6 +4,8 @@ import { getChannelDock } from "../../channels/dock.js";
 import type { ChannelId, ChannelThreadingToolContext } from "../../channels/plugins/types.js";
 import { normalizeAnyChannelId, normalizeChannelId } from "../../channels/registry.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import { getTrustWindow, type TrustWindow } from "../../infra/exec-approvals.js";
+import { DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import { isReasoningTagProvider } from "../../utils/provider-utils.js";
 import { estimateUsageCost, formatTokenCount, formatUsd } from "../../utils/usage-format.js";
 import type { TemplateContext } from "../templating.js";
@@ -143,6 +145,34 @@ export const appendUsageLine = (payloads: ReplyPayload[], line: string): ReplyPa
   return updated;
 };
 
+export const trustStatusLine = (params?: {
+  agentId?: string;
+  channel?: string;
+  now?: () => number;
+  trustWindow?: TrustWindow | null;
+}): string | undefined => {
+  const agentKey = params?.agentId?.trim() || DEFAULT_AGENT_ID;
+  const trustWindow = params?.trustWindow ?? getTrustWindow(agentKey);
+  if (!trustWindow || trustWindow.status !== "active") {
+    return undefined;
+  }
+  const now = params?.now ? params.now() : Date.now();
+  const remainingMs = trustWindow.expiresAt - now;
+  if (remainingMs <= 0) {
+    return undefined;
+  }
+  const minutes = Math.ceil(remainingMs / 60_000);
+  const warn = minutes <= 5;
+  const icon = warn ? "⚠️" : "🔓";
+  const label = warn ? "Trust" : "Trust active";
+  const baseLabel = params?.channel?.toLowerCase() === "discord" ? `**${label}**` : label;
+  const line = `${icon} ${baseLabel} · ${minutes}m remaining`;
+  if (params?.channel?.toLowerCase() === "discord") {
+    return `-# ${line}`;
+  }
+  return line;
+};
+
 export const resolveEnforceFinalTag = (run: FollowupRun["run"], provider: string) =>
   Boolean(run.enforceFinalTag || isReasoningTagProvider(provider));
 
@@ -175,6 +205,7 @@ export function buildEmbeddedRunBaseParams(params: {
     config: params.run.config,
     skillsSnapshot: params.run.skillsSnapshot,
     ownerNumbers: params.run.ownerNumbers,
+    inputProvenance: params.run.inputProvenance,
     senderIsOwner: params.run.senderIsOwner,
     enforceFinalTag: resolveEnforceFinalTag(params.run, params.provider),
     provider: params.provider,

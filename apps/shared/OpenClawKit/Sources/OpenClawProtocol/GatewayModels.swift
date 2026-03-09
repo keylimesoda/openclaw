@@ -539,6 +539,7 @@ public struct AgentParams: Codable, Sendable {
     public let idempotencykey: String
     public let label: String?
     public let spawnedby: String?
+    public let workspacedir: String?
 
     public init(
         message: String,
@@ -566,7 +567,8 @@ public struct AgentParams: Codable, Sendable {
         inputprovenance: [String: AnyCodable]?,
         idempotencykey: String,
         label: String?,
-        spawnedby: String?)
+        spawnedby: String?,
+        workspacedir: String?)
     {
         self.message = message
         self.agentid = agentid
@@ -594,6 +596,7 @@ public struct AgentParams: Codable, Sendable {
         self.idempotencykey = idempotencykey
         self.label = label
         self.spawnedby = spawnedby
+        self.workspacedir = workspacedir
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -623,6 +626,7 @@ public struct AgentParams: Codable, Sendable {
         case idempotencykey = "idempotencyKey"
         case label
         case spawnedby = "spawnedBy"
+        case workspacedir = "workspaceDir"
     }
 }
 
@@ -831,6 +835,20 @@ public struct NodeRenameParams: Codable, Sendable {
 }
 
 public struct NodeListParams: Codable, Sendable {}
+
+public struct NodePendingAckParams: Codable, Sendable {
+    public let ids: [String]
+
+    public init(
+        ids: [String])
+    {
+        self.ids = ids
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ids
+    }
+}
 
 public struct NodeDescribeParams: Codable, Sendable {
     public let nodeid: String
@@ -2930,6 +2948,72 @@ public struct ExecApprovalsSnapshot: Codable, Sendable {
     }
 }
 
+public struct ExecApprovalsTrustStatusParams: Codable, Sendable {
+    public let agentid: String?
+
+    public init(
+        agentid: String?)
+    {
+        self.agentid = agentid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agentid = "agentId"
+    }
+}
+
+public struct ExecApprovalsTrustStatusResult: Codable, Sendable {
+    public let agentid: String
+    public let trustwindow: AnyCodable?
+
+    public init(
+        agentid: String,
+        trustwindow: AnyCodable?)
+    {
+        self.agentid = agentid
+        self.trustwindow = trustwindow
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case agentid = "agentId"
+        case trustwindow = "trustWindow"
+    }
+}
+
+public struct TrustWindow: Codable, Sendable {
+    public let status: String
+    public let expiresat: Int
+    public let grantedat: Int
+    public let grantedby: String?
+    public let security: String
+    public let ask: String
+
+    public init(
+        status: String,
+        expiresat: Int,
+        grantedat: Int,
+        grantedby: String?,
+        security: String,
+        ask: String)
+    {
+        self.status = status
+        self.expiresat = expiresat
+        self.grantedat = grantedat
+        self.grantedby = grantedby
+        self.security = security
+        self.ask = ask
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case expiresat = "expiresAt"
+        case grantedat = "grantedAt"
+        case grantedby = "grantedBy"
+        case security
+        case ask
+    }
+}
+
 public struct ExecApprovalRequestParams: Codable, Sendable {
     public let id: String?
     public let command: String
@@ -3239,6 +3323,8 @@ public struct ChatSendParams: Codable, Sendable {
     public let deliver: Bool?
     public let attachments: [AnyCodable]?
     public let timeoutms: Int?
+    public let systeminputprovenance: [String: AnyCodable]?
+    public let systemprovenancereceipt: String?
     public let idempotencykey: String
 
     public init(
@@ -3248,6 +3334,8 @@ public struct ChatSendParams: Codable, Sendable {
         deliver: Bool?,
         attachments: [AnyCodable]?,
         timeoutms: Int?,
+        systeminputprovenance: [String: AnyCodable]?,
+        systemprovenancereceipt: String?,
         idempotencykey: String)
     {
         self.sessionkey = sessionkey
@@ -3256,6 +3344,8 @@ public struct ChatSendParams: Codable, Sendable {
         self.deliver = deliver
         self.attachments = attachments
         self.timeoutms = timeoutms
+        self.systeminputprovenance = systeminputprovenance
+        self.systemprovenancereceipt = systemprovenancereceipt
         self.idempotencykey = idempotencykey
     }
 
@@ -3266,6 +3356,8 @@ public struct ChatSendParams: Codable, Sendable {
         case deliver
         case attachments
         case timeoutms = "timeoutMs"
+        case systeminputprovenance = "systemInputProvenance"
+        case systemprovenancereceipt = "systemProvenanceReceipt"
         case idempotencykey = "idempotencyKey"
     }
 }

@@ -5,6 +5,7 @@ import {
   type ExecSecurity,
   buildEnforcedShellCommand,
   evaluateShellAllowlist,
+  getTrustWindow,
   recordAllowlistUse,
   requiresExecApproval,
   resolveAllowAlwaysPatterns,
@@ -13,7 +14,9 @@ import type { BwrapExtraBind, BuildBwrapArgsParams } from "../infra/exec-bwrap-s
 import { isBwrapAvailable } from "../infra/exec-bwrap-sandbox.js";
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
+import { summarizeTrustAudit, cleanupTrustAudit } from "../infra/trust-audit.js";
 import { logInfo } from "../logger.js";
+import { DEFAULT_AGENT_ID } from "../routing/session-key.js";
 import { markBackgrounded, tail } from "./bash-process-registry.js";
 import {
   buildExecApprovalRequesterContext,
@@ -76,12 +79,42 @@ export type ProcessGatewayAllowlistResult = {
 export async function processGatewayAllowlist(
   params: ProcessGatewayAllowlistParams,
 ): Promise<ProcessGatewayAllowlistResult> {
-  const { approvals, hostSecurity, hostAsk, askFallback } = resolveExecHostApprovalContext({
+  let { approvals, hostSecurity, hostAsk, askFallback } = resolveExecHostApprovalContext({
     agentId: params.agentId,
     security: params.security,
     ask: params.ask,
     host: "gateway",
   });
+
+  const agentKey = params.agentId?.trim() || DEFAULT_AGENT_ID;
+  const trustWindow = getTrustWindow(agentKey);
+  const now = Date.now();
+  const trustWindowActive =
+    trustWindow?.status === "active" &&
+    typeof trustWindow.expiresAt === "number" &&
+    now < trustWindow.expiresAt;
+  const trustWindowExpired =
+    trustWindow?.status === "active" &&
+    typeof trustWindow.expiresAt === "number" &&
+    now >= trustWindow.expiresAt;
+
+  if (trustWindowActive) {
+    hostSecurity = "full";
+    hostAsk = "off";
+  }
+
+  if (hostSecurity === "deny") {
+    throw new Error("exec denied: host=gateway security=deny");
+  }
+
+  if (trustWindowActive && trustWindow?.grantNotified !== true) {
+    const remainingMs = trustWindow.expiresAt - now;
+    const remainingMin = Math.max(1, Math.ceil(remainingMs / 60_000));
+    emitExecSystemEvent(`🔓 Trust window active · expires in ${remainingMin}m`, {
+      sessionKey: params.notifySessionKey,
+    });
+    trustWindow.grantNotified = true;
+  }
   const allowlistEval = evaluateShellAllowlist({
     command: params.command,
     allowlist: approvals.allowlist,
@@ -146,14 +179,14 @@ export async function processGatewayAllowlist(
     );
   }
 
-  // Pre-compute bwrap eligibility for both approval and non-approval paths.
-  // All segments must be satisfied by safeBins for bwrap to apply.
-  // A mixed command (some safeBins, some regular allowlist) would break because
-  // non-safeBins binaries aren't mounted inside the namespace.
-  const matchedViaSafeBins =
-    allowlistEval.segmentSatisfiedBy.length > 0 &&
-    allowlistEval.segmentSatisfiedBy.every((by) => by === "safeBins");
-  const bwrapEligible =
+    // Pre-compute bwrap eligibility for both approval and non-approval paths.
+    // All segments must be satisfied by safeBins for bwrap to apply.
+    // A mixed command (some safeBins, some regular allowlist) would break because
+    // non-safeBins binaries aren't mounted inside the namespace.
+    const matchedViaSafeBins =
+    allowlistEval.segmentSatisfiedBy .length > 0 &&
+    allowlistEval.segmentSatisfiedBy .every((by) => by === "safeBins");
+    const bwrapEligible =
     matchedViaSafeBins &&
     !params.pty &&
     params.nsSandboxMode === "bwrap" &&
@@ -162,24 +195,45 @@ export async function processGatewayAllowlist(
     allowlistSatisfied &&
     process.platform === "linux" &&
     isBwrapAvailable();
-  const makeBwrapParams = (): BuildBwrapArgsParams | undefined => {
+    const makeBwrapParams = (): BuildBwrapArgsParams | undefined => {
     if (!bwrapEligible) {
-      return undefined;
+    return undefined;
     }
     // Extract the shell binary name so bwrap mounts it inside the namespace.
     const shellConfig = getShellConfig();
     const shellBaseName = shellConfig.shell.includes("/")
-      ? shellConfig.shell.split("/").pop()!
-      : shellConfig.shell;
+    ? shellConfig.shell.split("/").pop()!
+    : shellConfig.shell;
     return {
-      safeBins: params.safeBins,
-      trustedSafeBinDirs: params.trustedSafeBinDirs ?? new Set(["/bin", "/usr/bin"]),
-      workdir: params.workdir,
-      extraBinds: params.nsSandboxExtraBinds,
-      extraShellBinaries: [shellBaseName],
+    safeBins: params.safeBins,
+    trustedSafeBinDirs: params.trustedSafeBinDirs ?? new Set(["/bin", "/usr/bin"]),
+    workdir: params.workdir,
+    extraBinds: params.nsSandboxExtraBinds,
+    extraShellBinaries: [shellBaseName],
     };
-  };
+    };
 
+    if (trustWindowExpired && trustWindow?.expiredNotified !== true) {
+    emitExecSystemEvent("🔒 Trust window expired. Exec approval required for new commands.", {
+    sessionKey: params.notifySessionKey,
+    });
+    const summary = summarizeTrustAudit({
+    agentId: agentKey,
+    startedAt: trustWindow.grantedAt,
+    endedAt: trustWindow.expiresAt ?? now,
+    });
+    if (summary) {
+    emitExecSystemEvent(summary, { sessionKey: params.notifySessionKey });
+    }
+    // TODO: Future enhancement — emit Discord buttons [Keep] / [Delete] for audit log
+    // retention on expiry, with delete-on-timeout default. For now, auto-delete.
+    cleanupTrustAudit(agentKey);
+    trustWindow.expiredNotified = true;
+    }
+  
+  
+  
+  
   if (requiresAsk) {
     const {
       approvalId,

@@ -116,10 +116,14 @@ import {
   type ExecApprovalsSetParams,
   ExecApprovalsSetParamsSchema,
   type ExecApprovalsSnapshot,
+  type ExecApprovalsTrustStatusParams,
+  ExecApprovalsTrustStatusParamsSchema,
+  type ExecApprovalsTrustStatusResult,
   type ExecApprovalRequestParams,
   ExecApprovalRequestParamsSchema,
   type ExecApprovalResolveParams,
   ExecApprovalResolveParamsSchema,
+  type TrustWindow,
   ErrorCodes,
   type ErrorShape,
   ErrorShapeSchema,
@@ -146,6 +150,8 @@ import {
   NodeInvokeResultParamsSchema,
   type NodeListParams,
   NodeListParamsSchema,
+  type NodePendingAckParams,
+  NodePendingAckParamsSchema,
   type NodePairApproveParams,
   NodePairApproveParamsSchema,
   type NodePairListParams,
@@ -285,6 +291,9 @@ export const validateNodePairVerifyParams = ajv.compile<NodePairVerifyParams>(
 );
 export const validateNodeRenameParams = ajv.compile<NodeRenameParams>(NodeRenameParamsSchema);
 export const validateNodeListParams = ajv.compile<NodeListParams>(NodeListParamsSchema);
+export const validateNodePendingAckParams = ajv.compile<NodePendingAckParams>(
+  NodePendingAckParamsSchema,
+);
 export const validateNodeDescribeParams = ajv.compile<NodeDescribeParams>(NodeDescribeParamsSchema);
 export const validateNodeInvokeParams = ajv.compile<NodeInvokeParams>(NodeInvokeParamsSchema);
 export const validateNodeInvokeResultParams = ajv.compile<NodeInvokeResultParams>(
@@ -334,6 +343,7 @@ export const validateWizardCancelParams = ajv.compile<WizardCancelParams>(Wizard
 export const validateWizardStatusParams = ajv.compile<WizardStatusParams>(WizardStatusParamsSchema);
 export const validateTalkModeParams = ajv.compile<TalkModeParams>(TalkModeParamsSchema);
 export const validateTalkConfigParams = ajv.compile<TalkConfigParams>(TalkConfigParamsSchema);
+export const validateTalkConfigResult = ajv.compile<TalkConfigResult>(TalkConfigResultSchema);
 export const validateChannelsStatusParams = ajv.compile<ChannelsStatusParams>(
   ChannelsStatusParamsSchema,
 );
@@ -377,6 +387,9 @@ export const validateExecApprovalsGetParams = ajv.compile<ExecApprovalsGetParams
 );
 export const validateExecApprovalsSetParams = ajv.compile<ExecApprovalsSetParams>(
   ExecApprovalsSetParamsSchema,
+);
+export const validateExecApprovalsTrustStatusParams = ajv.compile<ExecApprovalsTrustStatusParams>(
+  ExecApprovalsTrustStatusParamsSchema,
 );
 export const validateExecApprovalRequestParams = ajv.compile<ExecApprovalRequestParams>(
   ExecApprovalRequestParamsSchema,
@@ -464,6 +477,7 @@ export {
   NodePairRejectParamsSchema,
   NodePairVerifyParamsSchema,
   NodeListParamsSchema,
+  NodePendingAckParamsSchema,
   NodeInvokeParamsSchema,
   SessionsListParamsSchema,
   SessionsPreviewParamsSchema,
@@ -635,6 +649,9 @@ export type {
   ExecApprovalsGetParams,
   ExecApprovalsSetParams,
   ExecApprovalsSnapshot,
+  ExecApprovalsTrustStatusParams,
+  ExecApprovalsTrustStatusResult,
+  TrustWindow,
   LogsTailParams,
   LogsTailResult,
   PollParams,

@@ -43,6 +43,7 @@ import { createDiscordRetryRunner } from "../../infra/retry-policy.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getPluginCommandSpecs } from "../../plugins/commands.js";
 import { createNonExitingRuntime, type RuntimeEnv } from "../../runtime.js";
+import { summarizeStringEntries } from "../../shared/string-sample.js";
 import { resolveDiscordAccount } from "../accounts.js";
 import { fetchDiscordApplicationId } from "../probe.js";
 import { normalizeDiscordToken } from "../token.js";
@@ -90,6 +91,7 @@ import {
   reconcileAcpThreadBindingsOnStartup,
 } from "./thread-bindings.js";
 import { formatThreadBindingDurationLabel } from "./thread-bindings.messages.js";
+import { createDiscordTrustCommand, createDiscordUntrustCommand } from "./trust-command.js";
 
 export type MonitorDiscordOpts = {
   token?: string;
@@ -102,25 +104,6 @@ export type MonitorDiscordOpts = {
   replyToMode?: ReplyToMode;
   setStatus?: DiscordMonitorStatusSink;
 };
-
-function summarizeAllowList(list?: string[]) {
-  if (!list || list.length === 0) {
-    return "any";
-  }
-  const sample = list.slice(0, 4).map((entry) => String(entry));
-  const suffix = list.length > sample.length ? ` (+${list.length - sample.length})` : "";
-  return `${sample.join(", ")}${suffix}`;
-}
-
-function summarizeGuilds(entries?: Record<string, unknown>) {
-  if (!entries || Object.keys(entries).length === 0) {
-    return "any";
-  }
-  const keys = Object.keys(entries);
-  const sample = keys.slice(0, 4);
-  const suffix = keys.length > sample.length ? ` (+${keys.length - sample.length})` : "";
-  return `${sample.join(", ")}${suffix}`;
-}
 
 function formatThreadBindingDurationForConfigLabel(durationMs: number): string {
   const label = formatThreadBindingDurationLabel(durationMs);
@@ -135,7 +118,7 @@ function appendPluginCommandSpecs(params: {
   const existingNames = new Set(
     merged.map((spec) => spec.name.trim().toLowerCase()).filter(Boolean),
   );
-  for (const pluginCommand of getPluginCommandSpecs()) {
+  for (const pluginCommand of getPluginCommandSpecs("discord")) {
     const normalizedName = pluginCommand.name.trim().toLowerCase();
     if (!normalizedName) {
       continue;
@@ -402,8 +385,23 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
   allowFrom = allowlistResolved.allowFrom;
 
   if (shouldLogVerbose()) {
+    const allowFromSummary = summarizeStringEntries({
+      entries: allowFrom ?? [],
+      limit: 4,
+      emptyText: "any",
+    });
+    const groupDmChannelSummary = summarizeStringEntries({
+      entries: groupDmChannels ?? [],
+      limit: 4,
+      emptyText: "any",
+    });
+    const guildSummary = summarizeStringEntries({
+      entries: Object.keys(guildEntries ?? {}),
+      limit: 4,
+      emptyText: "any",
+    });
     logVerbose(
-      `discord: config dm=${dmEnabled ? "on" : "off"} dmPolicy=${dmPolicy} allowFrom=${summarizeAllowList(allowFrom)} groupDm=${groupDmEnabled ? "on" : "off"} groupDmChannels=${summarizeAllowList(groupDmChannels)} groupPolicy=${groupPolicy} guilds=${summarizeGuilds(guildEntries)} historyLimit=${historyLimit} mediaMaxMb=${Math.round(mediaMaxBytes / (1024 * 1024))} native=${nativeEnabled ? "on" : "off"} nativeSkills=${nativeSkillsEnabled ? "on" : "off"} accessGroups=${useAccessGroups ? "on" : "off"} threadBindings=${threadBindingsEnabled ? "on" : "off"} threadIdleTimeout=${formatThreadBindingDurationForConfigLabel(threadBindingIdleTimeoutMs)} threadMaxAge=${formatThreadBindingDurationForConfigLabel(threadBindingMaxAgeMs)}`,
+      `discord: config dm=${dmEnabled ? "on" : "off"} dmPolicy=${dmPolicy} allowFrom=${allowFromSummary} groupDm=${groupDmEnabled ? "on" : "off"} groupDmChannels=${groupDmChannelSummary} groupPolicy=${groupPolicy} guilds=${guildSummary} historyLimit=${historyLimit} mediaMaxMb=${Math.round(mediaMaxBytes / (1024 * 1024))} native=${nativeEnabled ? "on" : "off"} nativeSkills=${nativeSkillsEnabled ? "on" : "off"} accessGroups=${useAccessGroups ? "on" : "off"} threadBindings=${threadBindingsEnabled ? "on" : "off"} threadIdleTimeout=${formatThreadBindingDurationForConfigLabel(threadBindingIdleTimeoutMs)} threadMaxAge=${formatThreadBindingDurationForConfigLabel(threadBindingMaxAgeMs)}`,
     );
   }
 
@@ -506,6 +504,25 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
           ephemeralDefault,
         }),
       );
+    }
+
+    // Register trust/untrust commands in every configured guild
+    if (nativeEnabled && guildEntries) {
+      for (const guildId of Object.keys(guildEntries)) {
+        // Skip non-Snowflake keys (slugs, wildcards) — only valid numeric IDs work as guildId
+        if (!/^\d{17,20}$/.test(guildId)) {
+          continue;
+        }
+        const trustCtx = {
+          cfg,
+          discordConfig: discordCfg,
+          accountId: account.accountId,
+          ephemeralDefault,
+          guildId,
+        };
+        commands.push(createDiscordTrustCommand(trustCtx));
+        commands.push(createDiscordUntrustCommand(trustCtx));
+      }
     }
 
     // Initialize exec approvals handler if enabled

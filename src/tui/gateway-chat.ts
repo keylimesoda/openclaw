@@ -10,6 +10,7 @@ import {
 import { GatewayClient } from "../gateway/client.js";
 import { GATEWAY_CLIENT_CAPS } from "../gateway/protocol/client-info.js";
 import {
+  type ExecApprovalsTrustStatusResult,
   type HelloOk,
   PROTOCOL_VERSION,
   type SessionsListParams,
@@ -248,6 +249,15 @@ export class GatewayChatClient {
     return await this.client.request<SessionsPatchResult>("sessions.patch", opts);
   }
 
+  async getTrustStatus(opts?: { agentId?: string }): Promise<ExecApprovalsTrustStatusResult> {
+    return await this.client.request<ExecApprovalsTrustStatusResult>(
+      "exec.approvals.trust.status",
+      {
+        agentId: opts?.agentId,
+      },
+    );
+  }
+
   async resetSession(key: string, reason?: "new" | "reset") {
     return await this.client.request("sessions.reset", {
       key,
@@ -370,16 +380,15 @@ export async function resolveGatewayConnection(
   }
 
   const resolveToken = async () => {
-    const localToken =
-      explicitAuth.token || envToken
-        ? { value: explicitAuth.token ?? envToken }
-        : await resolveConfiguredSecretInputString({
-            value: config.gateway?.auth?.token,
-            path: "gateway.auth.token",
-            env,
-            config,
-          });
-    const token = explicitAuth.token ?? envToken ?? localToken.value;
+    const localToken = explicitAuth.token
+      ? { value: explicitAuth.token }
+      : await resolveConfiguredSecretInputString({
+          value: config.gateway?.auth?.token,
+          path: "gateway.auth.token",
+          env,
+          config,
+        });
+    const token = explicitAuth.token ?? localToken.value ?? envToken;
     if (!token) {
       throwGatewayAuthResolutionError(
         localToken.unresolvedRefReason ?? "Missing gateway auth token.",
@@ -410,7 +419,7 @@ export async function resolveGatewayConnection(
           env,
           config,
         });
-    const password = passwordCandidate ?? localPassword.value;
+    const password = explicitAuth.password ?? localPassword.value ?? envPassword;
     if (!password) {
       throwGatewayAuthResolutionError(
         localPassword.unresolvedRefReason ?? "Missing gateway auth password.",

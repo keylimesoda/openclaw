@@ -8,8 +8,10 @@ import {
   Text,
   TUI,
 } from "@mariozechner/pi-tui";
-import { resolveDefaultAgentId } from "../agents/agent-scope.js";
-import { loadConfig } from "../config/config.js";
+import { resolveAgentIdByWorkspacePath, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { trustStatusLine } from "../auto-reply/reply/agent-runner-utils.js";
+import { loadConfig, type OpenClawConfig } from "../config/config.js";
+import type { TrustWindow } from "../infra/exec-approvals.js";
 import {
   buildAgentMainSessionKey,
   normalizeAgentId,
@@ -208,6 +210,28 @@ export function resolveTuiSessionKey(params: {
   return `agent:${params.currentAgentId}:${trimmed.toLowerCase()}`;
 }
 
+export function resolveInitialTuiAgentId(params: {
+  cfg: OpenClawConfig;
+  fallbackAgentId: string;
+  initialSessionInput?: string;
+  cwd?: string;
+}) {
+  const parsed = parseAgentSessionKey((params.initialSessionInput ?? "").trim());
+  if (parsed?.agentId) {
+    return normalizeAgentId(parsed.agentId);
+  }
+
+  const inferredFromWorkspace = resolveAgentIdByWorkspacePath(
+    params.cfg,
+    params.cwd ?? process.cwd(),
+  );
+  if (inferredFromWorkspace) {
+    return inferredFromWorkspace;
+  }
+
+  return normalizeAgentId(params.fallbackAgentId);
+}
+
 export function resolveGatewayDisconnectState(reason?: string): {
   connectionStatus: string;
   activityStatus: string;
@@ -303,7 +327,12 @@ export async function runTui(opts: TuiOptions) {
   let sessionScope: SessionScope = (config.session?.scope ?? "per-sender") as SessionScope;
   let sessionMainKey = normalizeMainKey(config.session?.mainKey);
   let agentDefaultId = resolveDefaultAgentId(config);
-  let currentAgentId = agentDefaultId;
+  let currentAgentId = resolveInitialTuiAgentId({
+    cfg: config,
+    fallbackAgentId: agentDefaultId,
+    initialSessionInput,
+    cwd: process.cwd(),
+  });
   let agents: AgentSummary[] = [];
   const agentNames = new Map<string, string>();
   let currentSessionKey = "";
@@ -330,6 +359,10 @@ export async function runTui(opts: TuiOptions) {
   let statusTimer: NodeJS.Timeout | null = null;
   let statusStartedAt: number | null = null;
   let lastActivityStatus = activityStatus;
+  let trustWindow: TrustWindow | null = null;
+  let trustWindowAgentId: string | null = null;
+  let trustWindowFetchedAt = 0;
+  let trustWindowFetchPromise: Promise<void> | null = null;
 
   const state: TuiStateAccess = {
     get agentDefaultId() {
@@ -712,7 +745,41 @@ export async function runTui(opts: TuiOptions) {
     renderStatus();
   };
 
+  const refreshTrustWindow = async (force = false) => {
+    if (!isConnected) {
+      return;
+    }
+    if (trustWindowAgentId !== currentAgentId) {
+      trustWindowAgentId = currentAgentId;
+      trustWindow = null;
+      trustWindowFetchedAt = 0;
+    }
+    const now = Date.now();
+    if (!force && now - trustWindowFetchedAt < 30_000) {
+      return;
+    }
+    if (trustWindowFetchPromise) {
+      return;
+    }
+    trustWindowFetchPromise = (async () => {
+      try {
+        const result = await client.getTrustStatus({ agentId: currentAgentId });
+        trustWindow = (result.trustWindow as TrustWindow | undefined) ?? null;
+      } catch {
+        trustWindow = null;
+      }
+      trustWindowFetchedAt = Date.now();
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        trustWindowFetchPromise = null;
+        updateFooter();
+      });
+    await trustWindowFetchPromise;
+  };
+
   const updateFooter = () => {
+    void refreshTrustWindow();
     const sessionKeyLabel = formatSessionKey(currentSessionKey);
     const sessionLabel = sessionInfo.displayName
       ? `${sessionKeyLabel} (${sessionInfo.displayName})`
@@ -729,6 +796,7 @@ export async function runTui(opts: TuiOptions) {
     const reasoning = sessionInfo.reasoningLevel ?? "off";
     const reasoningLabel =
       reasoning === "on" ? "reasoning" : reasoning === "stream" ? "reasoning:stream" : null;
+    const trustLine = trustStatusLine({ agentId: currentAgentId, trustWindow });
     const footerParts = [
       `agent ${agentLabel}`,
       `session ${sessionLabel}`,
@@ -737,6 +805,7 @@ export async function runTui(opts: TuiOptions) {
       verbose !== "off" ? `verbose ${verbose}` : null,
       reasoningLabel,
       tokens,
+      trustLine,
     ].filter(Boolean);
     footer.setText(theme.dim(footerParts.join(" | ")));
   };

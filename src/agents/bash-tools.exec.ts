@@ -1,14 +1,25 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
-import { type ExecHost, maxAsk, minSecurity } from "../infra/exec-approvals.js";
+import {
+  type ExecHost,
+  getTrustWindow,
+  loadExecApprovals,
+  maxAsk,
+  minSecurity,
+} from "../infra/exec-approvals.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
 import {
   getShellPathFromLoginShell,
   resolveShellEnvFallbackTimeoutMs,
 } from "../infra/shell-env.js";
+import { appendTrustAuditEntry } from "../infra/trust-audit.js";
 import { logInfo } from "../logger.js";
-import { parseAgentSessionKey, resolveAgentIdFromSessionKey } from "../routing/session-key.js";
+import {
+  DEFAULT_AGENT_ID,
+  parseAgentSessionKey,
+  resolveAgentIdFromSessionKey,
+} from "../routing/session-key.js";
 import { markBackgrounded } from "./bash-process-registry.js";
 import { processGatewayAllowlist } from "./bash-tools.exec-host-gateway.js";
 import { executeNodeHostCommand } from "./bash-tools.exec-host-node.js";
@@ -327,11 +338,23 @@ export function createExecTool(
       if (elevatedRequested && elevatedMode === "full") {
         security = "full";
       }
-      const configuredAsk = defaults?.ask ?? "on-miss";
+      // Keep local exec defaults in sync with exec-approvals.json when tools.exec.ask is unset.
+      const configuredAsk = defaults?.ask ?? loadExecApprovals().defaults?.ask ?? "on-miss";
       const requestedAsk = normalizeExecAsk(params.ask);
       let ask = maxAsk(configuredAsk, requestedAsk ?? configuredAsk);
       const bypassApprovals = elevatedRequested && elevatedMode === "full";
       if (bypassApprovals) {
+        ask = "off";
+      }
+
+      const trustAgentKey = agentId?.trim() || DEFAULT_AGENT_ID;
+      const trustWindow = host === "gateway" ? getTrustWindow(trustAgentKey) : undefined;
+      const trustWindowActive =
+        trustWindow?.status === "active" &&
+        typeof trustWindow.expiresAt === "number" &&
+        Date.now() < trustWindow.expiresAt;
+      if (trustWindowActive) {
+        security = "full";
         ask = "off";
       }
 
@@ -493,6 +516,17 @@ export function createExecTool(
         timeoutSec: effectiveTimeout,
         onUpdate,
       });
+
+      if (trustWindowActive) {
+        void run.promise.then((outcome) => {
+          appendTrustAuditEntry({
+            agentId: trustAgentKey,
+            command: params.command,
+            exitCode: outcome.exitCode ?? (outcome.status === "completed" ? 0 : null),
+            durationMs: outcome.durationMs,
+          });
+        });
+      }
 
       let yielded = false;
       let yieldTimer: NodeJS.Timeout | null = null;
