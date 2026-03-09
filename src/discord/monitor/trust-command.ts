@@ -245,6 +245,14 @@ class DiscordUntrustCommand extends Command {
         revokedBy: `discord:${interaction.user?.id ?? "unknown"}`,
       })) as { ok: boolean; agentId: string; summary?: string };
 
+      if (!result.ok) {
+        await interaction.reply({
+          content: `❌ Failed to revoke trust for agent "${agentId}": ${result.summary ?? "unknown error"}`,
+          ephemeral: true,
+        });
+        return;
+      }
+
       const summaryBlock = result.summary ? `\n\`\`\`\n${result.summary}\n\`\`\`` : "";
       const auditNote = keepAudit ? "\n📁 Audit log preserved." : "";
 

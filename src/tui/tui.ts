@@ -10,7 +10,7 @@ import {
 } from "@mariozechner/pi-tui";
 import { resolveAgentIdByWorkspacePath, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { trustStatusLine } from "../auto-reply/reply/agent-runner-utils.js";
-import { loadConfig } from "../config/config.js";
+import { loadConfig, type OpenClawConfig } from "../config/config.js";
 import type { TrustWindow } from "../infra/exec-approvals.js";
 import {
   buildAgentMainSessionKey,
