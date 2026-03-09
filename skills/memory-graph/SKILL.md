@@ -163,8 +163,93 @@ The default schema follows Conway/Damasio/Rathbone/Bruner memory architecture. T
 
 The `self_model` table holds a singleton narrative about the agent's identity in its primary relationship. Update it when the relationship fundamentally shifts — not on every interaction.
 
+## Operational Wiring
+
+The graph DB without operational changes is a tool nobody uses. These steps make it the default path for memory reads and writes.
+
+### Quick Setup
+
+```bash
+bash scripts/setup.sh
+```
+
+This creates the DB, runs migration if MEMORY.md exists, and tells you what to do next.
+
+### 1. Switch Memory Backend (requires PR #6 or `graph` backend merged)
+
+```json
+// openclaw.json → memory section
+{
+  "memory": {
+    "backend": "graph",
+    "graph": {
+      "dbPath": "memory/graph/tommy_memory.db",
+      "anchorBoost": 1.5,
+      "transitionBoost": 1.2,
+      "autoReinforce": true,
+      "fallbackToBuiltin": true
+    }
+  }
+}
+```
+
+Or via agent session: `gateway config.patch` with `path="memory"`.
+
+With `fallbackToBuiltin: true`, if the graph DB is missing, `memory_search` falls back to markdown embedding search. Safe migration path.
+
+### 2. Nightly Curation Cron
+
+Create a cron job that reads daily logs and writes significant events to the graph:
+
+```
+Schedule: 0 3 * * * (3 AM daily)
+Session target: isolated agentTurn
+Payload message:
+
+  Memory curation time. Use the memory graph for all updates:
+  1. Read recent daily memory files (memory/YYYY-MM-DD.md for last 3 days)
+  2. Identify significant events worth keeping long-term
+  3. For each: python3 scripts/memgraph.py add <id> <title> <narrative> ...
+  4. Add edges: python3 scripts/memgraph.py link <source> <target> <relation>
+  5. Export boot context: python3 scripts/export_boot_context.py
+```
+
+### 3. Heartbeat Graph Lookup
+
+Patch the heartbeat prompt to include a graph search step. Add before existing steps:
+
+```
+Before deciding what to do, run: python3 scripts/memgraph.py search "<context keyword>"
+to recall relevant memories. This is free (local FTS, no API calls).
+```
+
+### 4. Agent Habits (AGENTS.md additions)
+
+Add to your AGENTS.md or equivalent workspace instructions:
+
+```markdown
+## Memory Write-Through
+
+When something significant happens during conversation — a decision, a correction,
+a new fact about your human, an identity moment — write it to the graph immediately:
+
+python3 scripts/memgraph.py add <id> "<title>" "<narrative>" <type> <tier> <weight> <epoch> "<tags>" <role>
+python3 scripts/memgraph.py link <source> <target> <relation>
+
+Don't wait for the nightly curation cron. The graph can handle constant writes.
+Significant = would change how you act if you forgot it.
+
+After any graph write, export boot context:
+python3 scripts/export_boot_context.py
+```
+
+### 5. Increased Curation Frequency (Optional)
+
+If your agent is active 12+ hours/day, consider twice-daily curation (3 AM + 3 PM) instead of nightly. The graph handles it fine — SQLite FTS5 inserts are sub-millisecond.
+
 ## File Reference
 
+- `scripts/setup.sh` — One-time setup: creates DB, migrates, prints next steps
 - `scripts/schema.sql` — Database schema (read for CHECK constraints and full structure)
 - `scripts/memgraph.py` — CLI query/mutation tool
 - `scripts/migrate_from_md.py` — One-time migration from MEMORY.md format
