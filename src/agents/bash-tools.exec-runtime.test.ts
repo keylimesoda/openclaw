@@ -10,10 +10,28 @@ vi.mock("../infra/system-events.js", () => ({
 
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
-import { emitExecSystemEvent } from "./bash-tools.exec-runtime.js";
+import { buildBwrapShellArgs, emitExecSystemEvent } from "./bash-tools.exec-runtime.js";
 
 const requestHeartbeatNowMock = vi.mocked(requestHeartbeatNow);
 const enqueueSystemEventMock = vi.mocked(enqueueSystemEvent);
+
+describe("buildBwrapShellArgs", () => {
+  it("adds --norc and --noprofile for bash inside bwrap", () => {
+    expect(buildBwrapShellArgs("/usr/bin/bash", ["-c"])).toEqual(["--norc", "--noprofile", "-c"]);
+  });
+
+  it("does not duplicate bash init suppression flags", () => {
+    expect(buildBwrapShellArgs("bash", ["--norc", "--noprofile", "-c"])).toEqual([
+      "--norc",
+      "--noprofile",
+      "-c",
+    ]);
+  });
+
+  it("leaves non-bash shells unchanged", () => {
+    expect(buildBwrapShellArgs("/bin/sh", ["-c"])).toEqual(["-c"]);
+  });
+});
 
 describe("emitExecSystemEvent", () => {
   beforeEach(() => {

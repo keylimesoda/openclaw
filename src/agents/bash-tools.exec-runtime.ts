@@ -254,6 +254,18 @@ export function emitExecSystemEvent(
   requestHeartbeatNow(scopedHeartbeatWakeOptions(sessionKey, { reason: "exec-event" }));
 }
 
+export function buildBwrapShellArgs(shell: string, shellArgs: readonly string[]): string[] {
+  const shellName = path.basename(shell).toLowerCase();
+  if (shellName !== "bash") {
+    return [...shellArgs];
+  }
+  return [
+    "--norc",
+    "--noprofile",
+    ...shellArgs.filter((arg) => arg !== "--norc" && arg !== "--noprofile"),
+  ];
+}
+
 export async function runExecProcess(opts: {
   command: string;
   // Execute this instead of `command` (which is kept for display/session/logging).
@@ -398,8 +410,10 @@ export async function runExecProcess(opts: {
       const bwrapPrefix = buildBwrapArgs(opts.bwrapSandbox);
       return {
         mode: "child" as const,
-        argv: [...bwrapPrefix, "--", shell, ...shellArgs, execCommand],
+        argv: [...bwrapPrefix, "--", shell, ...buildBwrapShellArgs(shell, shellArgs), execCommand],
         env: shellRuntimeEnv,
+        // Current bwrap execution is shell-driven and closes stdin for non-PTY runs,
+        // so piped stdin into sandboxed commands is not supported yet.
         stdinMode: "pipe-closed" as const,
       };
     }

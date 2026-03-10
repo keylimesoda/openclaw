@@ -2,6 +2,7 @@ import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import {
   addAllowlistEntry,
   type ExecAsk,
+  type ExecCommandSegment,
   type ExecSecurity,
   buildEnforcedShellCommand,
   evaluateShellAllowlist,
@@ -10,7 +11,7 @@ import {
   resolveAllowAlwaysPatterns,
 } from "../infra/exec-approvals.js";
 import type { BwrapExtraBind, BuildBwrapArgsParams } from "../infra/exec-bwrap-sandbox.js";
-import { isBwrapAvailable } from "../infra/exec-bwrap-sandbox.js";
+import { getBwrapPath } from "../infra/exec-bwrap-sandbox.js";
 import { detectCommandObfuscation } from "../infra/exec-obfuscation-detect.js";
 import type { SafeBinProfile } from "../infra/exec-safe-bin-policy.js";
 import { logInfo } from "../logger.js";
@@ -72,6 +73,41 @@ export type ProcessGatewayAllowlistResult = {
   bwrapSandbox?: BuildBwrapArgsParams;
   pendingResult?: AgentToolResult<ExecToolDetails>;
 };
+
+export function shouldEnableBwrapSandbox(params: {
+  matchedViaSafeBins: boolean;
+  pty: boolean;
+  nsSandboxMode?: string;
+  hostSecurity: ExecSecurity;
+  analysisOk: boolean;
+  allowlistSatisfied: boolean;
+  platform: NodeJS.Platform;
+  bwrapPath: string | null;
+}): boolean {
+  return (
+    params.matchedViaSafeBins &&
+    !params.pty &&
+    params.nsSandboxMode === "bwrap" &&
+    params.hostSecurity === "allowlist" &&
+    params.analysisOk &&
+    params.allowlistSatisfied &&
+    params.platform === "linux" &&
+    params.bwrapPath != null
+  );
+}
+
+export function collectBwrapCommandBins(
+  segments: readonly ExecCommandSegment[],
+): ReadonlySet<string> {
+  const bins = new Set<string>();
+  for (const segment of segments) {
+    const name = segment.resolution?.executableName?.trim().toLowerCase();
+    if (name) {
+      bins.add(name);
+    }
+  }
+  return bins;
+}
 
 export async function processGatewayAllowlist(
   params: ProcessGatewayAllowlistParams,
@@ -153,15 +189,17 @@ export async function processGatewayAllowlist(
   const matchedViaSafeBins =
     allowlistEval.segmentSatisfiedBy.length > 0 &&
     allowlistEval.segmentSatisfiedBy.every((by) => by === "safeBins");
-  const bwrapEligible =
-    matchedViaSafeBins &&
-    !params.pty &&
-    params.nsSandboxMode === "bwrap" &&
-    hostSecurity === "allowlist" &&
-    analysisOk &&
-    allowlistSatisfied &&
-    process.platform === "linux" &&
-    isBwrapAvailable();
+  const bwrapPath = getBwrapPath();
+  const bwrapEligible = shouldEnableBwrapSandbox({
+    matchedViaSafeBins,
+    pty: params.pty,
+    nsSandboxMode: params.nsSandboxMode,
+    hostSecurity,
+    analysisOk,
+    allowlistSatisfied,
+    platform: process.platform,
+    bwrapPath,
+  });
   const makeBwrapParams = (): BuildBwrapArgsParams | undefined => {
     if (!bwrapEligible) {
       return undefined;
@@ -175,8 +213,10 @@ export async function processGatewayAllowlist(
       safeBins: params.safeBins,
       trustedSafeBinDirs: params.trustedSafeBinDirs ?? new Set(["/bin", "/usr/bin"]),
       workdir: params.workdir,
+      workspace: process.env.OPENCLAW_WORKSPACE_DIR,
       extraBinds: params.nsSandboxExtraBinds,
       extraShellBinaries: [shellBaseName],
+      commandBins: collectBwrapCommandBins(allowlistEval.segments),
     };
   };
 
