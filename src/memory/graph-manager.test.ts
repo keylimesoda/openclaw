@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
+type SqliteDatabaseSync = typeof import("node:sqlite").DatabaseSync;
+
 // node:sqlite is experimental and may not be available in all test environments
-let DatabaseSync: typeof import("node:sqlite").DatabaseSync;
+let DatabaseSync: SqliteDatabaseSync | undefined;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const sqlite = require("node:sqlite");
+  const sqlite = require("node:sqlite") as { DatabaseSync?: SqliteDatabaseSync };
   DatabaseSync = sqlite.DatabaseSync;
 } catch {
   // Will skip tests below if not available
@@ -115,7 +117,7 @@ function makeConfig(overrides?: Partial<GraphManagerConfig>): GraphManagerConfig
   };
 }
 
-function seedDb(db: InstanceType<typeof DatabaseSync>): void {
+function seedDb(db: InstanceType<SqliteDatabaseSync>): void {
   db.exec(SCHEMA);
   const insertNode = db.prepare(
     `INSERT INTO nodes (id, title, narrative, type, tier, weight)
@@ -135,11 +137,11 @@ function seedDb(db: InstanceType<typeof DatabaseSync>): void {
 const describeIfSqlite = DatabaseSync ? describe : describe.skip;
 
 describeIfSqlite("GraphMemoryManager", () => {
-  let db: InstanceType<typeof DatabaseSync>;
+  let db: InstanceType<SqliteDatabaseSync>;
   let manager: GraphMemoryManager;
 
   beforeEach(() => {
-    db = new DatabaseSync(":memory:");
+    db = new DatabaseSync!(":memory:");
     seedDb(db);
     manager = GraphMemoryManager.createFromDb(db, makeConfig());
   });
