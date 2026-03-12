@@ -53,7 +53,8 @@ export type SystemRunApprovalFileOperand = {
 export type SystemRunApprovalPlan = {
   argv: string[];
   cwd: string | null;
-  rawCommand: string | null;
+  commandText: string;
+  commandPreview?: string | null;
   agentId: string | null;
   sessionKey: string | null;
   mutableFileOperand?: SystemRunApprovalFileOperand | null;
@@ -61,6 +62,7 @@ export type SystemRunApprovalPlan = {
 
 export type ExecApprovalRequestPayload = {
   command: string;
+  commandPreview?: string | null;
   commandArgv?: string[];
   // Optional UI-safe env key preview for approval prompts.
   envKeys?: string[];
