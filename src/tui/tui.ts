@@ -792,6 +792,7 @@ export async function runTui(opts: TuiOptions) {
       : "unknown";
     const tokens = formatTokens(sessionInfo.totalTokens ?? null, sessionInfo.contextTokens ?? null);
     const think = sessionInfo.thinkingLevel ?? "off";
+    const fast = sessionInfo.fastMode === true;
     const verbose = sessionInfo.verboseLevel ?? "off";
     const reasoning = sessionInfo.reasoningLevel ?? "off";
     const reasoningLabel =
@@ -802,6 +803,7 @@ export async function runTui(opts: TuiOptions) {
       `session ${sessionLabel}`,
       modelLabel,
       think !== "off" ? `think ${think}` : null,
+      fast ? "fast" : null,
       verbose !== "off" ? `verbose ${verbose}` : null,
       reasoningLabel,
       tokens,
