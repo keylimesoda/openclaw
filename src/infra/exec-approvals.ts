@@ -119,8 +119,6 @@ export type TrustWindow = {
   grantedBy?: string;
   security: ExecSecurity;
   ask: ExecAsk;
-  expiredNotified?: boolean;
-  grantNotified?: boolean;
 };
 
 export type ExecApprovalsAgent = ExecApprovalsDefaults & {
@@ -485,8 +483,6 @@ export function grantTrustWindow(params: {
     grantedBy: params.grantedBy?.slice(0, 256),
     security: "full",
     ask: "off",
-    expiredNotified: false,
-    grantNotified: false,
   });
 
   return { ok: true, agentId: validated.agentId, expiresAt };
