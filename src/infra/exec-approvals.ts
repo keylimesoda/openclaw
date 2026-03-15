@@ -498,14 +498,19 @@ export function revokeTrustWindow(params: { agentId?: string }): RevokeTrustResu
     return { ok: false, error: `No active trust window for agent "${validated.agentId}"` };
   }
 
-  const endedAt = trustWindow.expiresAt > now ? now : trustWindow.expiresAt;
-  const summary = summarizeTrustAudit({
-    agentId: validated.agentId,
-    startedAt: trustWindow.grantedAt,
-    endedAt,
-  });
-
   trustWindowCache.delete(validated.agentId);
+  const endedAt = trustWindow.expiresAt > now ? now : trustWindow.expiresAt;
+  let summary: string | null = null;
+  try {
+    // Revocation must never fail because audit summary generation failed.
+    summary = summarizeTrustAudit({
+      agentId: validated.agentId,
+      startedAt: trustWindow.grantedAt,
+      endedAt,
+    });
+  } catch {
+    summary = null;
+  }
   return { ok: true, agentId: validated.agentId, summary: summary ?? undefined };
 }
 

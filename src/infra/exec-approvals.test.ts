@@ -1,5 +1,7 @@
+import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { normalizeSafeBins } from "./exec-approvals-allowlist.js";
+import { makeTempDir } from "./exec-approvals-test-helpers.js";
 import {
   ABSOLUTE_MAX_TRUST_MINUTES,
   DEFAULT_MAX_TRUST_MINUTES,
@@ -11,6 +13,7 @@ import {
   revokeTrustWindow,
   type ExecAllowlistEntry,
 } from "./exec-approvals.js";
+import { resolveTrustAuditPath } from "./trust-audit.js";
 
 describe("exec approvals allowlist evaluation", () => {
   function evaluateAutoAllowSkills(params: {
@@ -334,6 +337,27 @@ describe("trust window", () => {
     expect(revoked.ok).toBe(false);
     if (!revoked.ok) {
       expect(revoked.error).toContain("No active trust window");
+    }
+  });
+
+  it("revokes trust window even when audit summary generation throws", () => {
+    const previousHome = process.env.OPENCLAW_HOME;
+    const homeDir = makeTempDir();
+    process.env.OPENCLAW_HOME = homeDir;
+    try {
+      initTrustWindowCache();
+      expect(grantTrustWindow({ agentId: "main", minutes: 5 }).ok).toBe(true);
+      fs.mkdirSync(resolveTrustAuditPath("main"), { recursive: true });
+
+      const revoked = revokeTrustWindow({ agentId: "main" });
+      expect(revoked.ok).toBe(true);
+      if (revoked.ok) {
+        expect(revoked.summary).toBeUndefined();
+      }
+      expect(getTrustWindow("main")).toBeUndefined();
+    } finally {
+      process.env.OPENCLAW_HOME = previousHome;
+      fs.rmSync(homeDir, { recursive: true, force: true });
     }
   });
 });
