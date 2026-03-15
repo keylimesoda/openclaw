@@ -12,6 +12,7 @@ export type TrustAuditEntry = {
   durationMs?: number | null;
 };
 
+// Cap individual audit entry commands to prevent unbounded log growth.
 const MAX_COMMAND_CHARS = 200;
 
 function ensureDir(filePath: string) {

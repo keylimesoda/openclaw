@@ -600,6 +600,14 @@ export function createExecTool(
             });
           })
           .catch((err) => {
+            if (host === "gateway" && trustWindowActiveAtStart) {
+              tryAppendTrustAuditEntry({
+                agentId,
+                command: params.command,
+                exitCode: null,
+                logLabel: "gateway error",
+              });
+            }
             if (yieldTimer) {
               clearTimeout(yieldTimer);
             }

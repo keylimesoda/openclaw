@@ -498,7 +498,7 @@ export function registerExecApprovalsCli(program: Command) {
 
   const trustCmd = approvals
     .command("trust")
-    .description("Grant a time-bounded trust window (full exec with ask=off)")
+    .description("Temporarily allow all commands without approval prompts")
     .requiredOption("--minutes <n>", "Duration in minutes (1-480)")
     .option("--agent <id>", "Agent id (defaults to main)")
     .option("--yes", "Skip confirmation prompt", false)
@@ -566,7 +566,7 @@ export function registerExecApprovalsCli(program: Command) {
 
   const untrustCmd = approvals
     .command("untrust")
-    .description("Revoke an active trust window")
+    .description("Revoke an active trust window and show audit summary")
     .option("--agent <id>", "Agent id (defaults to main)")
     .option("--yes", "Skip audit cleanup confirmation", false)
     .option("--keep-audit", "Keep audit file after revoke", false)

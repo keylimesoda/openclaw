@@ -75,6 +75,29 @@ describe("trust audit", () => {
     expect(summary).toBeNull();
   });
 
+  it("shows all commands when 10 or fewer entries", () => {
+    for (let i = 0; i < 10; i++) {
+      appendTrustAuditEntry({ agentId: "main", command: `cmd-${i}`, exitCode: 0, now: 1_000 + i });
+    }
+    const summary = summarizeTrustAudit({ agentId: "main" });
+    expect(summary).toBeDefined();
+    for (let i = 0; i < 10; i++) {
+      expect(summary).toContain(`cmd-${i}`);
+    }
+    expect(summary).not.toContain("more");
+  });
+
+  it("truncates command list when more than 10 entries", () => {
+    for (let i = 0; i < 11; i++) {
+      appendTrustAuditEntry({ agentId: "main", command: `cmd-${i}`, exitCode: 0, now: 1_000 + i });
+    }
+    const summary = summarizeTrustAudit({ agentId: "main" });
+    expect(summary).toBeDefined();
+    expect(summary).toContain("cmd-0");
+    expect(summary).toContain("cmd-4");
+    expect(summary).toContain("6 more");
+  });
+
   it("cleans up the audit file", () => {
     appendTrustAuditEntry({ agentId: "main", command: "echo hi", now: 100 });
     const filePath = resolveTrustAuditPath("main");

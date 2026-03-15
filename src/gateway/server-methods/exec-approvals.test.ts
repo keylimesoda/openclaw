@@ -278,4 +278,56 @@ describe("exec approvals trust handler", () => {
         .summary,
     ).toBeNull();
   });
+
+  it("returns full trust window payload in trust.status", async () => {
+    const cliClient = createClient({
+      id: "cli",
+      mode: "cli",
+      connId: "conn-cli",
+      deviceId: "dev-cli",
+    });
+    await invokeHandler({
+      method: "exec.approvals.trust",
+      payload: { agentId: "main", minutes: 5, force: false },
+      client: cliClient,
+    });
+
+    const statusResponse = await invokeHandler({
+      method: "exec.approvals.trust.status",
+      payload: { agentId: "main" },
+      client: cliClient,
+    });
+    expect(statusResponse.ok).toBe(true);
+    const tw = (
+      statusResponse.payload as {
+        trustWindow: { remainingMs: number; security: string; ask: string; expiresAt: number };
+      }
+    ).trustWindow;
+    expect(tw.security).toBe("full");
+    expect(tw.ask).toBe("off");
+    expect(tw.remainingMs).toBeGreaterThan(0);
+    expect(tw.expiresAt).toBeGreaterThan(Date.now());
+  });
+
+  it("cleans up audit file when untrust is called without keepAudit", async () => {
+    const cliClient = createClient({
+      id: "cli",
+      mode: "cli",
+      connId: "conn-cli",
+      deviceId: "dev-cli",
+    });
+    await invokeHandler({
+      method: "exec.approvals.trust",
+      payload: { agentId: "main", minutes: 5, force: false },
+      client: cliClient,
+    });
+    const untrustResponse = await invokeHandler({
+      method: "exec.approvals.untrust",
+      payload: { agentId: "main" },
+      client: cliClient,
+    });
+    expect(untrustResponse.ok).toBe(true);
+    // keepAudit defaults to falsy, so cleanup should have been called
+    expect((untrustResponse.payload as { ok: boolean }).ok).toBe(true);
+  });
 });

@@ -458,7 +458,7 @@ export function grantTrustWindow(params: {
   if (params.minutes > DEFAULT_MAX_TRUST_MINUTES && params.force !== true) {
     return {
       ok: false,
-      error: `Duration exceeds default cap (${DEFAULT_MAX_TRUST_MINUTES}m). Use force to allow up to ${ABSOLUTE_MAX_TRUST_MINUTES}m.`,
+      error: `Duration exceeds default cap (${DEFAULT_MAX_TRUST_MINUTES}m). Pass --force to allow up to ${ABSOLUTE_MAX_TRUST_MINUTES}m.`,
     };
   }
 
@@ -468,7 +468,7 @@ export function grantTrustWindow(params: {
     const remainingMinutes = Math.ceil((existing.expiresAt - now) / 60_000);
     return {
       ok: false,
-      error: `Trust window already active (${remainingMinutes}m remaining). Revoke it first.`,
+      error: `Trust window already active (${remainingMinutes}m remaining). Use 'openclaw approvals untrust' to revoke it first.`,
     };
   }
 

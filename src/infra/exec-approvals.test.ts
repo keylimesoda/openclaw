@@ -289,6 +289,13 @@ describe("trust window", () => {
     expect(aboveAbsolute.ok).toBe(false);
   });
 
+  it("rejects invalid agentId patterns", () => {
+    initTrustWindowCache();
+    expect(grantTrustWindow({ agentId: "main/../etc", minutes: 5 }).ok).toBe(false);
+    expect(grantTrustWindow({ agentId: "a".repeat(65), minutes: 5 }).ok).toBe(false);
+    expect(grantTrustWindow({ agentId: "!invalid", minutes: 5 }).ok).toBe(false);
+  });
+
   it("ignores expired trust windows during policy resolution", () => {
     initTrustWindowCache();
     const granted = grantTrustWindow({ agentId: "main", minutes: 1 });
