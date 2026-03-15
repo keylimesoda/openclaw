@@ -334,6 +334,8 @@ export const execApprovalsHandlers: GatewayRequestHandlers = {
     const untrustParams = params as { agentId?: string; keepAudit?: boolean };
     const result = revokeTrustWindow({
       agentId: untrustParams.agentId,
+      allowExpired: true,
+      allowMissing: true,
     });
     if (!result.ok) {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, result.error));

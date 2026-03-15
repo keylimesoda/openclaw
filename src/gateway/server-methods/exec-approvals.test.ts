@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { initTrustWindowCache } from "../../infra/exec-approvals.js";
+import { getTrustWindow, initTrustWindowCache } from "../../infra/exec-approvals.js";
 import { ErrorCodes } from "../protocol/index.js";
 import { execApprovalsHandlers } from "./exec-approvals.js";
 import type { GatewayClient, GatewayRequestContext } from "./types.js";
@@ -185,5 +185,59 @@ describe("exec approvals trust handler", () => {
     expect(statusResponse.error?.code).toBe(ErrorCodes.INVALID_REQUEST);
     expect(statusResponse.error?.message).toContain("interactive CLI caller");
     expect(statusResponse.warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows untrust to clear expired trust windows", async () => {
+    const cliClient = createClient({
+      id: "cli",
+      mode: "cli",
+      connId: "conn-cli",
+      deviceId: "dev-cli",
+    });
+    const trustResponse = await invokeHandler({
+      method: "exec.approvals.trust",
+      payload: { agentId: "main", minutes: 5, force: false },
+      client: cliClient,
+    });
+    expect(trustResponse.ok).toBe(true);
+
+    const trustWindow = getTrustWindow("main");
+    expect(trustWindow).toBeTruthy();
+    if (!trustWindow) {
+      return;
+    }
+    trustWindow.expiresAt = Date.now() - 1_000;
+
+    const untrustResponse = await invokeHandler({
+      method: "exec.approvals.untrust",
+      payload: { agentId: "main", keepAudit: true },
+      client: cliClient,
+    });
+    expect(untrustResponse.ok).toBe(true);
+    expect(
+      (untrustResponse.payload as { ok?: boolean; agentId?: string }).agentId,
+    ).toBe("main");
+    expect(getTrustWindow("main")).toBeUndefined();
+  });
+
+  it("treats untrust as idempotent when no trust window exists", async () => {
+    const cliClient = createClient({
+      id: "cli",
+      mode: "cli",
+      connId: "conn-cli",
+      deviceId: "dev-cli",
+    });
+    const untrustResponse = await invokeHandler({
+      method: "exec.approvals.untrust",
+      payload: { agentId: "main", keepAudit: true },
+      client: cliClient,
+    });
+    expect(untrustResponse.ok).toBe(true);
+    expect(
+      (untrustResponse.payload as { ok?: boolean; agentId?: string; summary?: string | null }).agentId,
+    ).toBe("main");
+    expect(
+      (untrustResponse.payload as { ok?: boolean; agentId?: string; summary?: string | null }).summary,
+    ).toBeNull();
   });
 });

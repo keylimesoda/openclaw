@@ -167,6 +167,30 @@ describe("exec approvals CLI", () => {
     expect(runtimeErrors.some((entry) => entry.includes("interactive terminal"))).toBe(true);
   });
 
+  it("rejects untrust command from agent sessions", async () => {
+    const previousSessionKey = process.env.OPENCLAW_SESSION_KEY;
+    process.env.OPENCLAW_SESSION_KEY = "session-from-agent";
+    try {
+      await expect(runApprovalsCommand(["approvals", "untrust", "--yes"])).rejects.toThrow(
+        /__exit__:1/,
+      );
+      expect(runtimeErrors.some((entry) => entry.includes("blocked from agent sessions"))).toBe(
+        true,
+      );
+      expect(callGatewayFromCli).not.toHaveBeenCalledWith(
+        "exec.approvals.untrust",
+        expect.anything(),
+        expect.anything(),
+      );
+    } finally {
+      if (previousSessionKey === undefined) {
+        delete process.env.OPENCLAW_SESSION_KEY;
+      } else {
+        process.env.OPENCLAW_SESSION_KEY = previousSessionKey;
+      }
+    }
+  });
+
   it("routes trust command to gateway RPC", async () => {
     Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
     callGatewayFromCli.mockResolvedValueOnce({

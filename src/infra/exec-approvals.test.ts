@@ -340,6 +340,30 @@ describe("trust window", () => {
     }
   });
 
+  it("revokes expired trust windows when explicitly allowed", () => {
+    initTrustWindowCache();
+    expect(grantTrustWindow({ agentId: "main", minutes: 1 }).ok).toBe(true);
+    const trustWindow = getTrustWindow("main");
+    expect(trustWindow).toBeTruthy();
+    if (!trustWindow) {
+      return;
+    }
+    trustWindow.expiresAt = Date.now() - 1_000;
+    const revoked = revokeTrustWindow({ agentId: "main", allowExpired: true });
+    expect(revoked.ok).toBe(true);
+    expect(getTrustWindow("main")).toBeUndefined();
+  });
+
+  it("supports idempotent revoke when explicitly allowed", () => {
+    initTrustWindowCache();
+    const revoked = revokeTrustWindow({ agentId: "main", allowMissing: true });
+    expect(revoked.ok).toBe(true);
+    if (revoked.ok) {
+      expect(revoked.agentId).toBe("main");
+      expect(revoked.summary).toBeUndefined();
+    }
+  });
+
   it("revokes trust window even when audit summary generation throws", () => {
     const previousHome = process.env.OPENCLAW_HOME;
     const homeDir = makeTempDir();

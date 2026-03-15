@@ -569,6 +569,11 @@ export function registerExecApprovalsCli(program: Command) {
     .option("--keep-audit", "Keep audit file after revoke", false)
     .action(async (opts: UntrustOpts) => {
       try {
+        if (process.env.OPENCLAW_SESSION_KEY || process.env.OPENCLAW_AGENT_ID) {
+          exitWithError(
+            "Trust window revocations are blocked from agent sessions. Use a direct terminal session.",
+          );
+        }
         const agentId = opts.agent?.trim() || "main";
         let keepAudit = Boolean(opts.keepAudit);
         if (!keepAudit && !opts.yes && process.stdin.isTTY) {
