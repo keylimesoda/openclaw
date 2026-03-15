@@ -216,6 +216,26 @@ describe("exec approvals CLI", () => {
     }
   });
 
+  it("rejects trust command when OPENCLAW_AGENT_ID is set", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    const previousAgentId = process.env.OPENCLAW_AGENT_ID;
+    process.env.OPENCLAW_AGENT_ID = "agent-from-env";
+    try {
+      await expect(
+        runApprovalsCommand(["approvals", "trust", "--minutes", "10", "--yes"]),
+      ).rejects.toThrow(/__exit__:1/);
+      expect(runtimeErrors.some((entry) => entry.includes("blocked from agent sessions"))).toBe(
+        true,
+      );
+    } finally {
+      if (previousAgentId === undefined) {
+        delete process.env.OPENCLAW_AGENT_ID;
+      } else {
+        process.env.OPENCLAW_AGENT_ID = previousAgentId;
+      }
+    }
+  });
+
   it("routes trust command to gateway RPC", async () => {
     Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
     callGatewayFromCli.mockResolvedValueOnce({
