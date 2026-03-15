@@ -16,7 +16,12 @@ type HandlerCallResult = {
   warnSpy: ReturnType<typeof vi.fn>;
 };
 
-function createClient(params: { id: string; mode: string; connId: string }): GatewayClient {
+function createClient(params: {
+  id: string;
+  mode: string;
+  connId: string;
+  deviceId?: string;
+}): GatewayClient {
   return {
     connId: params.connId,
     connect: {
@@ -26,6 +31,7 @@ function createClient(params: { id: string; mode: string; connId: string }): Gat
         version: "test",
         platform: "test",
       },
+      device: params.deviceId ? { id: params.deviceId } : undefined,
     } as GatewayClient["connect"],
   };
 }
@@ -72,6 +78,7 @@ describe("exec approvals trust handler", () => {
       id: "openclaw-control-ui",
       mode: "backend",
       connId: "conn-backend",
+      deviceId: "dev-backend",
     });
     const response = await invokeHandler({
       method: "exec.approvals.trust",
@@ -85,7 +92,12 @@ describe("exec approvals trust handler", () => {
   });
 
   it("derives grantedBy from caller metadata and ignores caller-supplied grantedBy", async () => {
-    const cliClient = createClient({ id: "cli", mode: "cli", connId: "conn-cli" });
+    const cliClient = createClient({
+      id: "cli",
+      mode: "cli",
+      connId: "conn-cli",
+      deviceId: "dev-cli",
+    });
     const trustResponse = await invokeHandler({
       method: "exec.approvals.trust",
       payload: {
@@ -107,5 +119,53 @@ describe("exec approvals trust handler", () => {
     expect(
       (statusResponse.payload as { trustWindow?: { grantedBy?: string } }).trustWindow?.grantedBy,
     ).toBe("cli:cli:conn-cli");
+  });
+
+  it("rejects trust grants from cli-mode callers without device identity", async () => {
+    const spoofedCliClient = createClient({
+      id: "cli",
+      mode: "cli",
+      connId: "conn-spoofed-cli",
+    });
+    const response = await invokeHandler({
+      method: "exec.approvals.trust",
+      payload: { agentId: "main", minutes: 5, force: false },
+      client: spoofedCliClient,
+    });
+    expect(response.ok).toBe(false);
+    expect(response.error?.code).toBe(ErrorCodes.INVALID_REQUEST);
+    expect(response.error?.message).toContain("interactive CLI caller");
+    expect(response.warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects untrust calls from non-CLI callers", async () => {
+    const cliClient = createClient({
+      id: "cli",
+      mode: "cli",
+      connId: "conn-cli",
+      deviceId: "dev-cli",
+    });
+    const trustResponse = await invokeHandler({
+      method: "exec.approvals.trust",
+      payload: { agentId: "main", minutes: 5, force: false },
+      client: cliClient,
+    });
+    expect(trustResponse.ok).toBe(true);
+
+    const backendClient = createClient({
+      id: "openclaw-control-ui",
+      mode: "backend",
+      connId: "conn-backend",
+      deviceId: "dev-backend",
+    });
+    const untrustResponse = await invokeHandler({
+      method: "exec.approvals.untrust",
+      payload: { agentId: "main", keepAudit: true },
+      client: backendClient,
+    });
+    expect(untrustResponse.ok).toBe(false);
+    expect(untrustResponse.error?.code).toBe(ErrorCodes.INVALID_REQUEST);
+    expect(untrustResponse.error?.message).toContain("interactive CLI caller");
+    expect(untrustResponse.warnSpy).toHaveBeenCalledTimes(1);
   });
 });

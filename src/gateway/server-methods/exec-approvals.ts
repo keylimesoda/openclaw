@@ -14,6 +14,7 @@ import {
 } from "../../infra/exec-approvals.js";
 import { cleanupTrustAudit } from "../../infra/trust-audit.js";
 import { isGatewayCliClient } from "../../utils/message-channel.js";
+import { GATEWAY_CLIENT_IDS } from "../protocol/client-info.js";
 import {
   ErrorCodes,
   errorShape,
@@ -106,7 +107,15 @@ function resolveNodeIdOrRespond(nodeId: string, respond: RespondFn): string | nu
 }
 
 function isTrustGrantCallerAllowed(client: GatewayClient | null): boolean {
-  return isGatewayCliClient(client?.connect?.client);
+  if (!isGatewayCliClient(client?.connect?.client)) {
+    return false;
+  }
+  if (client?.connect?.client?.id !== GATEWAY_CLIENT_IDS.CLI) {
+    return false;
+  }
+  // Bind trust-window grant/revoke authorization to authenticated device identity,
+  // not only caller-declared client mode metadata.
+  return typeof client?.connect?.device?.id === "string" && client.connect.device.id.trim() !== "";
 }
 
 function resolveTrustGrantActor(client: GatewayClient | null): string {
@@ -282,7 +291,7 @@ export const execApprovalsHandlers: GatewayRequestHandlers = {
     }
     respond(true, { ok: true, agentId: result.agentId, expiresAt: result.expiresAt }, undefined);
   },
-  "exec.approvals.untrust": ({ params, respond }) => {
+  "exec.approvals.untrust": ({ params, respond, client, context }) => {
     if (
       !assertValidParams(
         params,
@@ -291,6 +300,19 @@ export const execApprovalsHandlers: GatewayRequestHandlers = {
         respond,
       )
     ) {
+      return;
+    }
+    if (!isTrustGrantCallerAllowed(client)) {
+      const callerId = client?.connect?.client?.id ?? "unknown";
+      const callerMode = client?.connect?.client?.mode ?? "unknown";
+      context.logGateway.warn(
+        `exec.approvals.untrust denied for non-CLI caller (id=${callerId} mode=${callerMode})`,
+      );
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "trust revocations require an interactive CLI caller"),
+      );
       return;
     }
     const untrustParams = params as { agentId?: string; keepAudit?: boolean };
