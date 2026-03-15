@@ -151,6 +151,7 @@ export type ExecApprovalsResolved = {
   token: string;
   defaults: Required<ExecApprovalsDefaults>;
   agent: Required<ExecApprovalsDefaults>;
+  trustWindowActive: boolean;
   allowlist: ExecAllowlistEntry[];
   file: ExecApprovalsFile;
 };
@@ -607,7 +608,8 @@ export function resolveExecApprovalsFromFile(params: {
     ),
   };
   const trustWindow = getTrustWindow(agentKey);
-  const finalAgent: Required<ExecApprovalsDefaults> = isTrustWindowActive(trustWindow)
+  const trustWindowActive = isTrustWindowActive(trustWindow);
+  const finalAgent: Required<ExecApprovalsDefaults> = trustWindowActive
     ? {
         ...resolvedAgent,
         security: normalizeSecurity(trustWindow.security, resolvedAgent.security),
@@ -626,6 +628,7 @@ export function resolveExecApprovalsFromFile(params: {
     token: params.token ?? file.socket?.token ?? "",
     defaults: resolvedDefaults,
     agent: finalAgent,
+    trustWindowActive,
     allowlist,
     file,
   };

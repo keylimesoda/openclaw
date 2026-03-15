@@ -27,6 +27,7 @@ vi.mock("../infra/exec-approvals.js", async (importOriginal) => {
       askFallback: "full",
       autoAllowSkills: false,
     },
+    trustWindowActive: true,
     allowlist: [],
     file: {
       version: 1,

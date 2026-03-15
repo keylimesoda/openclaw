@@ -8,8 +8,6 @@ import {
   resolveExecApprovalInitiatingSurfaceState,
 } from "../infra/exec-approval-surface.js";
 import {
-  getTrustWindow,
-  isTrustWindowActive,
   maxAsk,
   minSecurity,
   resolveExecApprovals,
@@ -181,8 +179,9 @@ export function resolveExecHostApprovalContext(params: {
     security: params.security,
     ask: params.ask,
   });
-  const trustWindow = getTrustWindow(params.agentId);
-  const trustWindowActive = isTrustWindowActive(trustWindow);
+  const trustWindowActive = approvals.trustWindowActive;
+  // Host enforcement remains authoritative because request-level security/ask
+  // caps still apply when trust is not active.
   const hostSecurity = trustWindowActive
     ? "full"
     : minSecurity(params.security, approvals.agent.security);
