@@ -568,12 +568,16 @@ export function createExecTool(
               clearTimeout(yieldTimer);
             }
             if (host === "gateway" && trustWindowActiveAtStart) {
-              appendTrustAuditEntry({
-                agentId,
-                command: params.command,
-                exitCode: outcome.exitCode,
-                durationMs: outcome.durationMs,
-              });
+              try {
+                appendTrustAuditEntry({
+                  agentId,
+                  command: params.command,
+                  exitCode: outcome.exitCode,
+                  durationMs: outcome.durationMs,
+                });
+              } catch (error) {
+                logInfo(`exec: trust audit append failed (gateway): ${String(error)}`);
+              }
             }
             if (yielded || run.session.backgrounded) {
               return;
