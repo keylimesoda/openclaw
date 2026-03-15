@@ -21,9 +21,13 @@ function createClient(params: {
   mode: string;
   connId: string;
   deviceId?: string;
+  clientIp?: string;
+  authMethod?: "token" | "password" | "device-token" | "bootstrap-token" | "trusted-proxy";
 }): GatewayClient {
   return {
     connId: params.connId,
+    clientIp: params.clientIp,
+    authMethod: params.authMethod,
     connect: {
       client: {
         id: params.id,
@@ -131,6 +135,41 @@ describe("exec approvals trust handler", () => {
       method: "exec.approvals.trust",
       payload: { agentId: "main", minutes: 5, force: false },
       client: spoofedCliClient,
+    });
+    expect(response.ok).toBe(false);
+    expect(response.error?.code).toBe(ErrorCodes.INVALID_REQUEST);
+    expect(response.error?.message).toContain("interactive CLI caller");
+    expect(response.warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows localhost CLI trust grants with token auth and no device identity", async () => {
+    const localCliClient = createClient({
+      id: "cli",
+      mode: "cli",
+      connId: "conn-local-cli",
+      clientIp: "127.0.0.1",
+      authMethod: "token",
+    });
+    const response = await invokeHandler({
+      method: "exec.approvals.trust",
+      payload: { agentId: "main", minutes: 5, force: false },
+      client: localCliClient,
+    });
+    expect(response.ok).toBe(true);
+  });
+
+  it("rejects non-loopback CLI trust grants without device identity", async () => {
+    const remoteCliClient = createClient({
+      id: "cli",
+      mode: "cli",
+      connId: "conn-remote-cli",
+      clientIp: "10.0.0.5",
+      authMethod: "token",
+    });
+    const response = await invokeHandler({
+      method: "exec.approvals.trust",
+      payload: { agentId: "main", minutes: 5, force: false },
+      client: remoteCliClient,
     });
     expect(response.ok).toBe(false);
     expect(response.error?.code).toBe(ErrorCodes.INVALID_REQUEST);

@@ -15,6 +15,7 @@ import {
 import { cleanupTrustAudit } from "../../infra/trust-audit.js";
 import { isGatewayCliClient } from "../../utils/message-channel.js";
 import { GATEWAY_CLIENT_IDS } from "../protocol/client-info.js";
+import { isLoopbackAddress } from "../net.js";
 import {
   ErrorCodes,
   errorShape,
@@ -113,9 +114,16 @@ function isTrustGrantCallerAllowed(client: GatewayClient | null): boolean {
   if (client?.connect?.client?.id !== GATEWAY_CLIENT_IDS.CLI) {
     return false;
   }
-  // Bind trust-window grant/revoke authorization to authenticated device identity,
-  // not only caller-declared client mode metadata.
-  return typeof client?.connect?.device?.id === "string" && client.connect.device.id.trim() !== "";
+  const hasDeviceIdentity =
+    typeof client?.connect?.device?.id === "string" && client.connect.device.id.trim() !== "";
+  if (hasDeviceIdentity) {
+    return true;
+  }
+  // Localhost token/password gateway calls intentionally omit device identity,
+  // so allow that authenticated path for trusted CLI usage.
+  const sharedAuthMethod = client?.authMethod;
+  const usesSharedAuth = sharedAuthMethod === "token" || sharedAuthMethod === "password";
+  return usesSharedAuth && isLoopbackAddress(client?.clientIp);
 }
 
 function resolveTrustGrantActor(client: GatewayClient | null): string {
