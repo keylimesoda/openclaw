@@ -366,12 +366,16 @@ export async function executeNodeHostCommand(
     );
   } catch (error) {
     if (trustWindowActiveAtStart) {
-      appendTrustAuditEntry({
-        agentId: runAgentId,
-        command: params.command,
-        exitCode: null,
-        durationMs: Date.now() - startedAt,
-      });
+      try {
+        appendTrustAuditEntry({
+          agentId: runAgentId,
+          command: params.command,
+          exitCode: null,
+          durationMs: Date.now() - startedAt,
+        });
+      } catch (auditError) {
+        logInfo(`exec: trust audit append failed (node invoke error path): ${String(auditError)}`);
+      }
     }
     throw error;
   }
@@ -385,12 +389,16 @@ export async function executeNodeHostCommand(
   const success = typeof payloadObj.success === "boolean" ? payloadObj.success : false;
   const exitCode = typeof payloadObj.exitCode === "number" ? payloadObj.exitCode : null;
   if (trustWindowActiveAtStart) {
-    appendTrustAuditEntry({
-      agentId: runAgentId,
-      command: params.command,
-      exitCode,
-      durationMs: Date.now() - startedAt,
-    });
+    try {
+      appendTrustAuditEntry({
+        agentId: runAgentId,
+        command: params.command,
+        exitCode,
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (auditError) {
+      logInfo(`exec: trust audit append failed (node invoke success path): ${String(auditError)}`);
+    }
   }
   return {
     content: [

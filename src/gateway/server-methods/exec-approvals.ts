@@ -13,6 +13,7 @@ import {
   type ExecApprovalsSnapshot,
 } from "../../infra/exec-approvals.js";
 import { cleanupTrustAudit } from "../../infra/trust-audit.js";
+import { isGatewayCliClient } from "../../utils/message-channel.js";
 import {
   ErrorCodes,
   errorShape,
@@ -30,7 +31,7 @@ import {
   respondUnavailableOnThrow,
   safeParseJson,
 } from "./nodes.helpers.js";
-import type { GatewayRequestHandlers, RespondFn } from "./types.js";
+import type { GatewayClient, GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
 
 function requireApprovalsBaseHash(
@@ -102,6 +103,17 @@ function resolveNodeIdOrRespond(nodeId: string, respond: RespondFn): string | nu
     return null;
   }
   return id;
+}
+
+function isTrustGrantCallerAllowed(client: GatewayClient | null): boolean {
+  return isGatewayCliClient(client?.connect?.client);
+}
+
+function resolveTrustGrantActor(client: GatewayClient | null): string {
+  const clientId = client?.connect?.client?.id ?? "unknown-client";
+  const clientMode = client?.connect?.client?.mode ?? "unknown-mode";
+  const connId = client?.connId ?? "unknown-conn";
+  return `${clientId}:${clientMode}:${connId}`.slice(0, 256);
 }
 
 export const execApprovalsHandlers: GatewayRequestHandlers = {
@@ -234,22 +246,34 @@ export const execApprovalsHandlers: GatewayRequestHandlers = {
       undefined,
     );
   },
-  "exec.approvals.trust": ({ params, respond }) => {
+  "exec.approvals.trust": ({ params, respond, client, context }) => {
     if (
       !assertValidParams(params, validateExecApprovalsTrustParams, "exec.approvals.trust", respond)
     ) {
       return;
     }
+    if (!isTrustGrantCallerAllowed(client)) {
+      const callerId = client?.connect?.client?.id ?? "unknown";
+      const callerMode = client?.connect?.client?.mode ?? "unknown";
+      context.logGateway.warn(
+        `exec.approvals.trust denied for non-CLI caller (id=${callerId} mode=${callerMode})`,
+      );
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.INVALID_REQUEST, "trust grants require an interactive CLI caller"),
+      );
+      return;
+    }
     const trustParams = params as {
       agentId?: string;
       minutes: number;
-      grantedBy?: string;
       force?: boolean;
     };
     const result = grantTrustWindow({
       agentId: trustParams.agentId,
       minutes: trustParams.minutes,
-      grantedBy: trustParams.grantedBy,
+      grantedBy: resolveTrustGrantActor(client),
       force: trustParams.force,
     });
     if (!result.ok) {
